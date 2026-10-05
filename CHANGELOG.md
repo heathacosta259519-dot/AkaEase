@@ -14,3 +14,7 @@ All notable changes to this project will be documented in this file.
   - Apple Music-style dual-language synchronized lyrics with zero-jitter typography.
   - Ultra-high framerate scrolling pipeline targeting 150fps+ on high-refresh monitors.
   - Borderless frameless window with client-side drag regions.
+
+### Fixed
+- Fixed an issue where opening the lyrics view occasionally shifted the parent viewport and clipped top navigation controls.
+

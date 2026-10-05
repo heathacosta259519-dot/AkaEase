@@ -84,15 +84,19 @@ export function LyricsView() {
 
     // Immediate or rAF alignment to ensure container is laid out
     const scrollToTarget = (smooth: boolean) => {
-      if (scrollContainerRef.current && activeIndex >= 0) {
-        const activeEl = scrollContainerRef.current.children[activeIndex] as HTMLElement;
-        if (activeEl) {
-          activeEl.scrollIntoView({
-            behavior: smooth ? 'smooth' : 'auto',
-            block: 'center',
-          });
-        }
-      }
+      const container = scrollContainerRef.current;
+      if (!container || activeIndex < 0) return;
+      const activeEl = container.children[activeIndex] as HTMLElement | undefined;
+      if (!activeEl) return;
+
+      // 使用容器自身的 scrollTop 计算，避免 scrollIntoView 导致整页父容器甚至根视口发生滚动颠簸
+      const targetScrollTop =
+        activeEl.offsetTop - container.clientHeight / 2 + activeEl.clientHeight / 2;
+
+      container.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: smooth ? 'smooth' : 'auto',
+      });
     };
 
     const rafId = requestAnimationFrame(() => {
@@ -105,7 +109,7 @@ export function LyricsView() {
   if (!isLyricsOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#121214] select-none overflow-hidden animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex h-full w-full flex-col bg-[#121214] select-none overflow-hidden overscroll-none animate-in fade-in duration-200">
       {/* Dynamic Ambient Background with Vibrant Album Artwork */}
       {currentTrack?.album.coverUrl && (
         <div

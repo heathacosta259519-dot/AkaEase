@@ -1,0 +1,29 @@
+[package]
+name = "akanetease-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+default-run = "akanetease-desktop"
+
+[dependencies]
+akanetease-backend = { path = "..", features = ["mpris"] }
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time", "signal", "macros"] }
+
+[build-dependencies]
+tauri-build = "2"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+webview-check = ["custom-protocol"]
+
+[[bin]]
+name = "webview-check"
+path = "src/bin/webview-check.rs"
+required-features = ["webview-check"]

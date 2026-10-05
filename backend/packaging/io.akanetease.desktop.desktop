@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AkaNetease-desktop
+Comment=NetEase Cloud Music client
+Exec=akanetease-desktop
+Icon=io.akanetease.desktop
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=true
+DBusActivatable=false

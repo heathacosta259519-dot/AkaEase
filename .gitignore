@@ -1,0 +1,23 @@
+# Build outputs
+/dist/
+target/
+**/target/
+build/
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & runtime caches
+.env
+.env.local
+.DS_Store
+.archive/
+.pi/
+*.pyc
+__pycache__/
+*.tar.gz
+*.sha256

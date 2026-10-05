@@ -1,0 +1,11 @@
+{
+  "identifier": "main",
+  "description": "Local main window event subscriptions; no filesystem or shell access.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:event:default",
+    "backend"
+  ]
+}

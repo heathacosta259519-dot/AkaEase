@@ -13,28 +13,55 @@
 专为 Linux 桌面平台打造的原生音乐播放客户端。  
 基于 **Tauri 2 + Rust + React 19** 构建，深度融合 **GStreamer** 高性能音频引擎与系统级 **MPRIS** 媒体控制。
 
-[特性亮点](#-特性亮点) • [架构与性能](#-架构与性能) • [快速开始](#-快速开始) • [界面预览](#-界面预览) • [免责与合规声明](#-免责与合规声明)
+[📸 界面预览](#-界面预览) • [✨ 特性亮点](#-特性亮点) • [🏗️ 架构与性能](#️-架构与性能) • [🚀 快速开始](#-快速开始) • [⚖️ 免责声明](#️-免责与合规声明-disclaimer)
+
+<br/>
+
+<a href="#-界面预览">
+  <img src="docs/screenshots/screenshot-lyrics-more-than-words.png" width="850" alt="AkaEase 沉浸式黑胶双语歌词舞台" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.4);" />
+</a>
+
+<p align="center">
+  <sub>▲ 沉浸式黑胶唱机动效与 Apple Music 风格双语同步歌词实机效果</sub>
+</p>
 
 ---
 
 </div>
 
+## 📸 界面预览
+
+<div align="center">
+
+| 沉浸式黑胶歌词舞台 · J-Pop 氛围 | 沉浸式黑胶歌词舞台 · 欧美摇滚氛围 |
+| :---: | :---: |
+| <img src="docs/screenshots/screenshot-lyrics-more-than-words.png" width="460" alt="more than words - 沉浸式双语歌词界面" style="border-radius: 8px;" /> | <img src="docs/screenshots/screenshot-lyrics-sick-love.png" width="460" alt="Sick Love - 沉浸式双语歌词界面" style="border-radius: 8px;" /> |
+| **《more than words》· 羊文学**<br><sub>双语实时同步 · 焦点高光渐隐 · 动态氛围晕染</sub> | **《Sick Love》· Red Hot Chili Peppers**<br><sub>高保真金属黑胶 · 物理惯性停驻 · 毫秒级 Seek</sub> |
+
+</div>
+
+---
+
 ## ✨ 特性亮点
 
 - 🎨 **极简深空沉浸舞台**：
   - 采用无边框全沉浸式窗口（Borderless & Frameless），原生支持窗口任意空白区域随心拖拽；
-  - 动态电影级专辑艺术色彩晕染（Cinematic Vignette），环境氛围感纯净通透。
+  - 动态电影级专辑艺术色彩晕染（Cinematic Vignette），环境氛围感纯净通透，根据唱片色调自适应流体背景。
 - 💿 **高保真黑胶唱机动效**：
   - 拟物化同心金属沟槽黑胶转盘，支持 24s 匀速旋转与自然物理停驻动效（Pause-state Preservation），暂停不跳步。
 - 📜 **Apple Music 风格双语同步歌词**：
   - 原文与中文翻译同字号黄金排版，消除断行跳动（Zero Layout Shift）；
-  - 300ms 丝滑 Crossfade 焦点高光跟随，支持点击任意行精准即时 Seek。
+  - 300ms 丝滑 Crossfade 焦点高光跟随，毫秒级精度滚动，支持点击任意单行即时定位播放（Instant Seek）。
 - ⚡ **150fps+ 极高刷新率流体滚动**：
   - 为 144Hz / 165Hz / 240Hz+ 电竞与高刷显示器量身定制的硬件加速合成层（Compositing Layer Isolation）；
-  - 视口外虚拟虚拟化剪裁（Modern `content-visibility`），上百首长歌单滚动丝滑不掉帧。
+  - 视口外虚拟剪裁与现代 `content-visibility` 优化，数百首长歌单流畅滚装不掉帧。
 - 🐧 **Linux 原生系统级深度整合**：
-  - 基于 **GStreamer 1.0** 底层流媒体管线，低延迟、无缝缓冲；
-  - 完整实现 Linux **MPRIS D-Bus** 规范，原生响应系统媒体键盘快捷键、锁屏控件与系统托盘。
+  - 基于 **GStreamer 1.0** 底层流媒体管线，原生硬件解压、超低音频延迟与无缝缓冲；
+  - 完整实现 Linux **MPRIS D-Bus** 规范，原生响应多媒体键盘快捷键、锁屏媒体控件、GNOME/KDE 系统托盘集成。
+- 🎛️ **全功能播放中枢与音乐库探索**：
+  - 官方精选榜单、每日推荐、雷达歌单随心畅听；
+  - 沉浸式专辑/歌手详情大图、歌曲列表抽屉（Queue Drawer）、随机与循环模式自如切换；
+  - 原生支持二维码安全扫码登录与个人喜欢歌单秒级双向同步。
 
 ---
 
@@ -77,7 +104,7 @@ sudo apt install libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugin
 ### 构建与打包
 
 ```bash
-# 1. 克隆本仓库
+# 1. 克隆公开仓库
 git clone https://github.com/your-username/AkaEase.git
 cd AkaEase
 
@@ -87,13 +114,14 @@ cd AkaEase
 
 构建脚本将自动完成 TypeScript 编译、Rust 发布版本构建及完整的隔离环境健康自检，最终绿色打包产物位于 `dist/` 目录下。
 
----
+### 常用操作与交互
 
-## 📸 界面预览
-
-| 沉浸式黑胶歌词舞台 | 官方榜单与曲库探索 |
-| :---: | :---: |
-| *(双语同步歌词 / 通栏播放中枢)* | *(精美大封面 / 动态等化器波形)* |
+| 功能 | 操作方式 |
+| :--- | :--- |
+| **全屏歌词展开 / 收起** | 点击播放栏左侧黑胶封面 / 点击左上角「收起歌词」 |
+| **歌词点击即跳 (Seek)** | 直接点击歌词视图中任意单行文本 |
+| **播放队列抽屉** | 点击播放控制区右上角「队列 (Queue)」按钮 |
+| **系统级媒体控制** | 键盘多媒体按键 / MPRIS 桌面小部件直接控制播放、暂停、上一曲、下一曲 |
 
 ---
 

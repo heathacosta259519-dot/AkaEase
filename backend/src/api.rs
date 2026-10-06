@@ -45,6 +45,17 @@ pub(crate) fn pagination(offset: u32, limit: u32) -> Result<()> {
 }
 
 impl NeteaseClient {
+    #[cfg(feature = "test-support")]
+    pub fn local_fixture(origin: &str) -> Result<Self> {
+        let origin = Url::parse(origin).map_err(|_| protocol("invalid fixture URL"))?;
+        if origin.scheme() != "http" || origin.host_str() != Some("127.0.0.1") {
+            return Err(protocol("fixture must use a local HTTP server"));
+        }
+        let mut client = Self::configured(&crate::storage::ProxyConfig::Direct)?;
+        client.origin = origin;
+        Ok(client)
+    }
+
     pub fn new() -> Result<Self> {
         Self::configured(&crate::storage::ProxyConfig::System)
     }
@@ -228,6 +239,120 @@ impl NeteaseClient {
             .collect())
     }
 
+    pub async fn artist_detail(&self, id: &str) -> Result<ArtistDetail> {
+        let id = validate_id(id)?;
+        let value = self
+            .request_weapi_codes(&format!("weapi/v1/artist/{id}"), json!({}), &[200])
+            .await?;
+        let artist: WireArtistDetail = decode(value["artist"].clone())?;
+        let WireArtistDetail {
+            id,
+            name,
+            cover_url,
+            alias,
+            brief_description,
+            music_size,
+            album_size,
+        } = artist;
+        Ok(ArtistDetail {
+            id: id.to_string(),
+            name,
+            cover_url,
+            aliases: alias,
+            brief_description,
+            music_size,
+            album_size,
+        })
+    }
+
+    pub async fn artist_songs(&self, id: &str) -> Result<Vec<Track>> {
+        let id = validate_id(id)?;
+        let value = self
+            .request(
+                self.http
+                    .get(self.endpoint("api/artist/top/song"))
+                    .query(&[("id", id)]),
+            )
+            .await?;
+        let songs: Vec<WireTrack> = decode(value["songs"].clone())?;
+        Ok(songs.into_iter().take(50).map(Track::from).collect())
+    }
+
+    pub async fn artist_albums(
+        &self,
+        id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Page<AlbumSummary>> {
+        let id = validate_id(id)?;
+        pagination(offset, limit)?;
+        let value = self
+            .request(
+                self.http
+                    .get(self.endpoint(&format!("api/artist/albums/{id}")))
+                    .query(&[("offset", offset), ("limit", limit)]),
+            )
+            .await?;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AlbumCount {
+            album_size: u64,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Albums {
+            artist: AlbumCount,
+            hot_albums: Vec<WireAlbumDetail>,
+            more: bool,
+        }
+        let result: Albums = decode(value)?;
+        Ok(Page {
+            items: result
+                .hot_albums
+                .into_iter()
+                .map(|album| AlbumSummary {
+                    id: album.id.to_string(),
+                    name: album.name,
+                    cover_url: crate::covers::album_cover(&album.id.to_string(), album.cover_url),
+                    artist: album.artist.map(Artist::from),
+                    artists: album.artists.into_iter().map(Artist::from).collect(),
+                    publish_time_ms: album.publish_time_ms,
+                    track_count: album.track_count,
+                })
+                .collect(),
+            total: result.artist.album_size,
+            offset,
+            has_more: result.more,
+        })
+    }
+
+    pub async fn album_detail(&self, id: &str) -> Result<AlbumDetail> {
+        let id = validate_id(id)?;
+        let value = self
+            .request_weapi_codes(&format!("weapi/v1/album/{id}"), json!({}), &[200])
+            .await?;
+        let album: WireAlbumDetail = decode(value["album"].clone())?;
+        let songs: Vec<WireTrack> = decode(value["songs"].clone())?;
+        let artists = album
+            .artists
+            .into_iter()
+            .map(Artist::from)
+            .collect::<Vec<_>>();
+        let artist = album.artist.map(Artist::from);
+        Ok(AlbumDetail {
+            id: album.id.to_string(),
+            name: album.name,
+            cover_url: crate::covers::album_cover(&album.id.to_string(), album.cover_url),
+            artist,
+            artists,
+            description: album.description,
+            publish_time_ms: album.publish_time_ms,
+            company: album.company,
+            track_count: album.track_count,
+            tracks: songs.into_iter().map(Track::from).collect(),
+        })
+    }
+
     pub async fn playlist(&self, id: &str, offset: u32, limit: u32) -> Result<PlaylistPage> {
         let id = validate_id(id)?;
         pagination(offset, limit)?;
@@ -354,6 +479,53 @@ struct WireArtist {
     id: u64,
     name: String,
 }
+impl From<WireArtist> for Artist {
+    fn from(value: WireArtist) -> Self {
+        Self {
+            id: value.id.to_string(),
+            name: value.name,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireArtistDetail {
+    id: u64,
+    name: String,
+    #[serde(rename = "picUrl", alias = "cover", default)]
+    cover_url: Option<String>,
+    #[serde(default)]
+    alias: Vec<String>,
+    #[serde(rename = "briefDesc", default)]
+    brief_description: Option<String>,
+    #[serde(rename = "musicSize", default)]
+    music_size: u64,
+    #[serde(rename = "albumSize", default)]
+    album_size: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireAlbumDetail {
+    id: u64,
+    name: String,
+    #[serde(rename = "picUrl", alias = "cover", default)]
+    cover_url: Option<String>,
+    #[serde(default)]
+    artist: Option<WireArtist>,
+    #[serde(default)]
+    artists: Vec<WireArtist>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(rename = "publishTime", default)]
+    publish_time_ms: Option<u64>,
+    #[serde(default)]
+    company: Option<String>,
+    #[serde(rename = "size", default)]
+    track_count: u64,
+}
+
 #[derive(Deserialize)]
 struct WireAlbum {
     id: u64,
@@ -378,18 +550,14 @@ impl From<WireTrack> for Track {
             id: value.id.to_string(),
             title: value.name,
             duration_ms: value.duration,
-            artists: value
-                .artists
-                .into_iter()
-                .map(|artist| Artist {
-                    id: artist.id.to_string(),
-                    name: artist.name,
-                })
-                .collect(),
+            artists: value.artists.into_iter().map(Artist::from).collect(),
             album: Album {
                 id: value.album.id.to_string(),
                 name: value.album.name,
-                cover_url: value.album.cover,
+                cover_url: crate::covers::album_cover(
+                    &value.album.id.to_string(),
+                    value.album.cover,
+                ),
             },
         }
     }
@@ -445,6 +613,145 @@ mod tests {
     }
     fn song(id: u64) -> Value {
         json!({"id":id,"name":"自建歌曲","ar":[{"id":7,"name":"Test artist"}],"al":{"id":8,"name":"Test album"},"dt":4567})
+    }
+    #[tokio::test]
+    async fn missing_album_cover_falls_back_across_details_lists_and_tracks() {
+        let missing = "https://p4.music.126.net/Uk_AkI1cDZNn1fn_jl_Snw==/18268385696067264.jpg";
+        let fallback = "https://p1.music.126.net/xdCW-LmznfEJFivWyV7a_Q==/109951164116268622.jpg";
+        let album = json!({"id":79543884,"name":"By The Way","picUrl":missing,"size":16,"publishTime":123,"company":"Synthetic company","artist":{"id":41927,"name":"Red Hot Chili Peppers"}});
+        let mut track = song(1);
+        track["al"] = album.clone();
+        let songs = json!([track.clone(), track]);
+        let (client, task) = mock(vec![
+            (
+                "POST /weapi/v1/album/79543884?",
+                json!({"code":200,"album":album,"songs":songs}).to_string(),
+            ),
+            (
+                "GET /api/artist/albums/41927?",
+                json!({"code":200,"artist":{"albumSize":183},"hotAlbums":[album],"more":false})
+                    .to_string(),
+            ),
+            (
+                "GET /api/song/detail/?",
+                json!({"code":200,"songs":songs}).to_string(),
+            ),
+        ])
+        .await;
+        let detail = client.album_detail("79543884").await.unwrap();
+        assert_eq!(detail.id, "79543884");
+        assert_eq!(detail.name, "By The Way");
+        assert_eq!(detail.track_count, 16);
+        assert_eq!(detail.publish_time_ms, Some(123));
+        assert_eq!(detail.company.as_deref(), Some("Synthetic company"));
+        assert_eq!(detail.cover_url.as_deref(), Some(fallback));
+        assert_eq!(detail.tracks.len(), 2);
+        for track in &detail.tracks {
+            assert_eq!(track.album.id, "79543884");
+            assert_eq!(track.album.cover_url.as_deref(), Some(fallback));
+        }
+        let page = client.artist_albums("41927", 0, 20).await.unwrap();
+        assert_eq!(page.items[0].id, detail.id);
+        assert_eq!(page.items[0].cover_url, detail.cover_url);
+        assert_eq!(page.total, 183);
+        let tracks = client.tracks(&["1".into(), "1".into()]).await.unwrap();
+        assert_eq!(tracks, detail.tracks);
+        task.await.unwrap();
+    }
+    #[tokio::test]
+    async fn artist_songs_preserve_top_order_cap_and_empty_list() {
+        let songs: Vec<_> = (1..=51).rev().map(song).collect();
+        let (client, task) = mock(vec![
+            (
+                "GET /api/artist/top/song?id=7 ",
+                json!({"code":200,"songs":songs}).to_string(),
+            ),
+            (
+                "GET /api/artist/top/song?id=8 ",
+                json!({"code":200,"songs":[]}).to_string(),
+            ),
+        ])
+        .await;
+        let tracks = client.artist_songs("7").await.unwrap();
+        assert_eq!(tracks.len(), 50);
+        assert_eq!(tracks.first().unwrap().id, "51");
+        assert_eq!(tracks.last().unwrap().id, "2");
+        assert_eq!(tracks[0].duration_ms, 4567);
+        assert!(client.artist_songs("8").await.unwrap().is_empty());
+        task.await.unwrap();
+    }
+    #[tokio::test]
+    async fn artist_albums_preserve_metadata_order_and_upstream_pagination() {
+        let albums = json!([
+            {"id":9007199254740993_u64,"name":"First","picUrl":"https://example.com/cover.jpg","artist":{"id":7,"name":"Singer"},"artists":[{"id":7,"name":"Singer"}],"publishTime":123456,"size":5},
+            {"id":2,"name":"Second","picUrl":null,"publishTime":null,"size":0}
+        ]);
+        let (client, task) = mock(vec![
+            (
+                "GET /api/artist/albums/7?offset=0&limit=3 ",
+                json!({"code":200,"artist":{"albumSize":8},"hotAlbums":albums,"more":true})
+                    .to_string(),
+            ),
+            (
+                "GET /api/artist/albums/7?offset=3&limit=3 ",
+                json!({"code":200,"artist":{"albumSize":8},"hotAlbums":[],"more":false})
+                    .to_string(),
+            ),
+        ])
+        .await;
+        let page = client.artist_albums("7", 0, 3).await.unwrap();
+        assert_eq!(page.total, 8);
+        assert_eq!(page.offset, 0);
+        assert!(page.has_more);
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].id, "9007199254740993");
+        assert_eq!(page.items[1].id, "2");
+        assert!(page.items[1].artist.is_none());
+        assert!(page.items[1].artists.is_empty());
+        assert!(page.items[1].cover_url.is_none());
+        let json = serde_json::to_value(&page).unwrap();
+        assert_eq!(json["items"][0]["publishTimeMs"], 123456);
+        assert_eq!(json["items"][0]["trackCount"], 5);
+        assert_eq!(json["items"][0]["artists"][0]["id"], "7");
+        let last = client.artist_albums("7", 3, 3).await.unwrap();
+        assert_eq!(last.offset, 3);
+        assert_eq!(last.total, 8);
+        assert!(!last.has_more);
+        assert!(last.items.is_empty());
+        task.await.unwrap();
+    }
+    #[tokio::test]
+    async fn artist_queries_reject_service_and_incomplete_responses() {
+        let (client, task) = mock(vec![
+            ("GET /api/artist/top/song?", json!({"code":500}).to_string()),
+            ("GET /api/artist/top/song?", json!({"code":200}).to_string()),
+            (
+                "GET /api/artist/albums/7?",
+                json!({"code":200,"artist":{"albumSize":8},"hotAlbums":[]}).to_string(),
+            ),
+            (
+                "GET /api/artist/albums/7?",
+                json!({"code":200,"hotAlbums":[],"more":false}).to_string(),
+            ),
+        ])
+        .await;
+        assert!(matches!(
+            client.artist_songs("7").await,
+            Err(BackendError::Service(500))
+        ));
+        assert!(matches!(
+            client.artist_songs("7").await,
+            Err(BackendError::Protocol(_))
+        ));
+        assert!(matches!(
+            client.artist_albums("7", 0, 20).await,
+            Err(BackendError::Protocol(_))
+        ));
+        assert!(matches!(
+            client.artist_albums("7", 0, 20).await,
+            Err(BackendError::Protocol(_))
+        ));
+        task.await.unwrap();
     }
     #[tokio::test]
     async fn playlist_preserves_requested_order_duplicates_and_missing_ids() {
@@ -513,6 +820,22 @@ mod tests {
         ));
         assert!(client.tracks(&["1&cookie=x".into()]).await.is_err());
         assert!(client.playlist("1", 0, 0).await.is_err());
+        assert!(matches!(
+            client.artist_songs("0").await,
+            Err(BackendError::InvalidInput(_))
+        ));
+        assert!(client.artist_songs("1&cookie=x").await.is_err());
+        for (id, offset, limit) in [
+            ("0", 0, 20),
+            ("1", 0, 0),
+            ("1", 0, 101),
+            ("1", 1_000_001, 20),
+        ] {
+            assert!(matches!(
+                client.artist_albums(id, offset, limit).await,
+                Err(BackendError::InvalidInput(_))
+            ));
+        }
         assert!(validate_id("0").is_err());
     }
 }

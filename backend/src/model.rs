@@ -15,6 +15,45 @@ pub struct Album {
     pub cover_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistDetail {
+    pub id: String,
+    pub name: String,
+    pub cover_url: Option<String>,
+    pub aliases: Vec<String>,
+    pub brief_description: Option<String>,
+    pub music_size: u64,
+    pub album_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumSummary {
+    pub id: String,
+    pub name: String,
+    pub cover_url: Option<String>,
+    pub artist: Option<Artist>,
+    pub artists: Vec<Artist>,
+    pub publish_time_ms: Option<u64>,
+    pub track_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumDetail {
+    pub id: String,
+    pub name: String,
+    pub cover_url: Option<String>,
+    pub artist: Option<Artist>,
+    pub artists: Vec<Artist>,
+    pub description: Option<String>,
+    pub publish_time_ms: Option<u64>,
+    pub company: Option<String>,
+    pub track_count: u64,
+    pub tracks: Vec<Track>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {

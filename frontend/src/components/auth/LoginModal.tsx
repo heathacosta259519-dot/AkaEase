@@ -9,6 +9,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { useSessionStore, sessionActions } from '../../stores/sessionStore';
+import { BrandLogo } from '../common/BrandLogo';
 
 export function LoginModal() {
   const isOpen = useSessionStore((s) => s.isLoginModalOpen);
@@ -63,22 +64,26 @@ export function LoginModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm select-none p-4 animate-in fade-in duration-150">
-      <div className="relative w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl space-y-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm select-none p-4 animate-backdrop-in">
+      <div className="relative w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl space-y-6 animate-modal-pop">
         {/* Close Button */}
         <button
           onClick={() => sessionActions.closeLoginModal()}
-          className="absolute right-4 top-4 rounded-lg p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
+          className="absolute right-4 top-4 rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors press-feedback-sm"
           title="关闭"
         >
           <X className="h-4 w-4" />
         </button>
 
-        {/* Modal Header */}
-        <div className="text-center space-y-1">
-          <h2 className="text-base font-bold text-white">扫码登录云音乐账号</h2>
+        {/* Modal Header with Official Brand Banner */}
+        <div className="text-center space-y-1.5 pt-1">
+          <BrandLogo
+            variant="full"
+            className="h-8 mx-auto mb-2 drop-shadow-[0_2px_10px_rgba(249,38,54,0.35)]"
+          />
+          <h2 className="text-sm font-bold text-white">扫码登录网易云音乐</h2>
           <p className="text-xs text-neutral-400">
-            打开配套手机客户端扫一扫登录
+            打开手机云音乐 App 扫一扫以同步个人曲库
           </p>
         </div>
 
@@ -114,7 +119,7 @@ export function LoginModal() {
               </div>
               <button
                 onClick={() => sessionActions.startLogin()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-medium text-white shadow hover:bg-rose-500 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-medium text-white shadow hover:bg-rose-500 transition-colors press-feedback-sm"
               >
                 <RefreshCw className="h-3 w-3" />
                 <span>重新获取</span>
@@ -137,7 +142,7 @@ export function LoginModal() {
                   <span className="text-xs font-medium text-neutral-800">二维码已失效</span>
                   <button
                     onClick={() => sessionActions.startLogin()}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-medium text-white shadow hover:bg-rose-500 transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-medium text-white shadow hover:bg-rose-500 transition-colors press-feedback-sm"
                   >
                     <RefreshCw className="h-3 w-3" />
                     <span>刷新二维码</span>

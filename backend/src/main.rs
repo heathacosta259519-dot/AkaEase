@@ -18,7 +18,7 @@ async fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "aka-backend login [--memory-only] | session | logout | playlists [offset] [limit] | liked | daily | qr-probe\naka-backend search <query> | track <id> | playlist <id> [offset] | lyrics <id> | stream <id> | play <file-path-or-http-url>\naka-backend config | config-set <json-file> | paths | cache-stats | cache-clear | account-playlist <id>\nAll times are milliseconds; play requires the audio feature. Stop playback with Ctrl+C."
+            "aka-backend login [--memory-only] | session | logout | playlists [offset] [limit] | liked | daily | qr-probe\naka-backend search <query> | track <id> | artist <id> | artist-songs <id> | artist-albums <id> [offset] [limit] | album <id> | playlist <id> [offset] | lyrics <id> | stream <id> | play <file-path-or-http-url>\naka-backend config | config-set <json-file> | paths | cache-stats | cache-clear | account-playlist <id>\nAll times are milliseconds; play requires the audio feature. Stop playback with Ctrl+C."
         );
         return Ok(());
     }
@@ -147,6 +147,47 @@ async fn run() -> Result<()> {
                 .tracks(std::slice::from_ref(argument.ok_or_else(|| {
                     BackendError::InvalidInput("missing track ID".into())
                 })?))
+                .await?,
+        ),
+        "artist" => print(
+            client
+                .artist_detail(
+                    argument
+                        .ok_or_else(|| BackendError::InvalidInput("missing artist ID".into()))?,
+                )
+                .await?,
+        ),
+        "artist-songs" => print(
+            client
+                .artist_songs(
+                    argument
+                        .ok_or_else(|| BackendError::InvalidInput("missing artist ID".into()))?,
+                )
+                .await?,
+        ),
+        "artist-albums" => {
+            let id =
+                argument.ok_or_else(|| BackendError::InvalidInput("missing artist ID".into()))?;
+            let offset = args
+                .get(2)
+                .map(|value| value.parse::<u32>())
+                .transpose()
+                .map_err(|_| BackendError::InvalidInput("invalid offset".into()))?
+                .unwrap_or(0);
+            let limit = args
+                .get(3)
+                .map(|value| value.parse::<u32>())
+                .transpose()
+                .map_err(|_| BackendError::InvalidInput("invalid limit".into()))?
+                .unwrap_or(20);
+            print(client.artist_albums(id, offset, limit).await?);
+        }
+        "album" => print(
+            client
+                .album_detail(
+                    argument
+                        .ok_or_else(|| BackendError::InvalidInput("missing album ID".into()))?,
+                )
                 .await?,
         ),
         "playlist" => {

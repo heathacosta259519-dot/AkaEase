@@ -119,6 +119,113 @@ async fn wait(
     .unwrap()
 }
 #[tokio::test]
+async fn expansion_preserves_audio_seek_pause_selection_and_shuffle() {
+    let audio = FakeAudio::new();
+    let resolver = Arc::new(Resolver {
+        calls: AtomicUsize::new(0),
+        fail: false,
+        slow_first: false,
+    });
+    let player = PlayerHandle::spawn(audio.clone(), resolver.clone());
+    player
+        .command(PlayerCommand::Replace {
+            tracks: vec![track("57"), track("58")],
+            selected: 0,
+            autoplay: true,
+        })
+        .await
+        .unwrap();
+    let ready = wait(&player, |s| s.playback.state == PlaybackState::Playing).await;
+    player
+        .command(PlayerCommand::Seek {
+            position_ms: 1200,
+            selection_id: ready.selection_id.clone(),
+        })
+        .await
+        .unwrap();
+    player.command(PlayerCommand::Pause).await.unwrap();
+    player.command(PlayerCommand::Shuffle(true)).await.unwrap();
+    let expanded = player
+        .command(PlayerCommand::Expand {
+            tracks: (1..=2005).map(|id| track(&id.to_string())).collect(),
+            revision: ready.queue_revision.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(expanded.current_index, Some(56));
+    assert_eq!(expanded.queue_length, 2005);
+    assert_eq!(expanded.selection_id, ready.selection_id);
+    assert_ne!(expanded.queue_revision, ready.queue_revision);
+    assert_eq!(expanded.playback.state, PlaybackState::Paused);
+    assert_eq!(expanded.playback.position_ms, 1200);
+    assert!(expanded.shuffle);
+    assert!(!expanded.play_when_ready);
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(audio.0.lock().unwrap().2.len(), 1);
+    assert!(matches!(
+        player
+            .command(PlayerCommand::Expand {
+                tracks: vec![track("57")],
+                revision: ready.queue_revision,
+            })
+            .await,
+        Err(BackendError::StaleOperation)
+    ));
+    player.command(PlayerCommand::Shutdown).await.unwrap();
+}
+
+#[tokio::test]
+async fn expansion_during_resolution_preserves_duplicate_occurrence_and_rejects_invalid_updates() {
+    let audio = FakeAudio::new();
+    let resolver = Arc::new(Resolver {
+        calls: AtomicUsize::new(0),
+        fail: false,
+        slow_first: true,
+    });
+    let player = PlayerHandle::spawn(audio.clone(), resolver.clone());
+    let initial = player
+        .command(PlayerCommand::Replace {
+            tracks: vec![track("1"), track("1")],
+            selected: 1,
+            autoplay: true,
+        })
+        .await
+        .unwrap();
+    for tracks in [vec![track("1")], vec![track("0")], vec![track("1"); 10001]] {
+        assert!(matches!(
+            player
+                .command(PlayerCommand::Expand {
+                    tracks,
+                    revision: initial.queue_revision.clone(),
+                })
+                .await,
+            Err(BackendError::InvalidInput(_))
+        ));
+        assert_eq!(player.snapshot().queue_revision, initial.queue_revision);
+    }
+    let expanded = player
+        .command(PlayerCommand::Expand {
+            tracks: vec![track("2"), track("1"), track("3"), track("1"), track("4")],
+            revision: initial.queue_revision,
+        })
+        .await
+        .unwrap();
+    assert!(expanded.resolving);
+    assert_eq!(expanded.current_index, Some(3));
+    assert_eq!(expanded.selection_id, initial.selection_id);
+    wait(&player, |s| s.playback.state == PlaybackState::Playing).await;
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(audio.0.lock().unwrap().2.len(), 1);
+    audio.event(AudioEvent::Ended);
+    wait(&player, |s| {
+        s.current.as_ref().is_some_and(|t| t.id == "4")
+            && s.playback.state == PlaybackState::Playing
+    })
+    .await;
+    player.command(PlayerCommand::Shutdown).await.unwrap();
+}
+
+#[tokio::test]
 async fn fast_selection_pause_during_resolution_and_stale_edits() {
     let audio = FakeAudio::new();
     let resolver = Arc::new(Resolver {

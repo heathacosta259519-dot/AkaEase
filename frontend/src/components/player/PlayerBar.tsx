@@ -17,6 +17,7 @@ import { useViewStore, viewActions } from '../../stores/viewStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { ProgressBar } from './ProgressBar';
 import { VolumeControl } from './VolumeControl';
+import { BrandLogo } from '../common/BrandLogo';
 import type { RepeatMode } from '../../types/backend';
 
 export function PlayerBar() {
@@ -38,8 +39,6 @@ export function PlayerBar() {
     const nextIdx = (sequence.indexOf(repeat) + 1) % sequence.length;
     playerActions.setRepeat(sequence[nextIdx]);
   };
-
-  const artistsText = currentTrack?.artists.map((a) => a.name).join(', ') ?? '未知歌手';
 
   return (
     <footer className="relative z-20 flex h-[76px] w-full items-center justify-between border-t border-neutral-800/80 bg-neutral-950 px-4 select-none">
@@ -68,38 +67,55 @@ export function PlayerBar() {
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-col">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate text-xs font-medium text-neutral-100">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold text-neutral-100">
                   {currentTrack.title}
                 </span>
                 {snapshot?.isPreview && (
-                  <span className="shrink-0 rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-medium text-amber-300">
+                  <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300">
                     试听
                   </span>
                 )}
               </div>
-              <span className="truncate text-[11px] text-neutral-400">
-                {artistsText}
-              </span>
+              <div className="truncate text-xs text-neutral-400">
+                {currentTrack.artists.map((artist, idx) => (
+                  <span key={artist.id || idx}>
+                    <button
+                      type="button"
+                      onClick={() => viewActions.openArtist(artist.id)}
+                      className="hover:text-white hover:underline transition-colors cursor-pointer text-xs"
+                    >
+                      {artist.name}
+                    </button>
+                    {idx < currentTrack.artists.length - 1 && <span className="text-neutral-500 mr-1">, </span>}
+                  </span>
+                ))}
+              </div>
             </div>
 
             <button
               disabled
               title={isLiked ? '已喜欢' : '喜欢'}
-              className={`p-1.5 transition-colors ${
+              className={`p-1.5 transition-colors press-feedback-sm ${
                 isLiked ? 'text-rose-500' : 'text-neutral-500 hover:text-neutral-300'
               }`}
             >
-              <Heart className={`h-4 w-4 ${isLiked ? 'fill-rose-500' : ''}`} />
+              <Heart className={`h-4 w-4 ${isLiked ? 'fill-rose-500 animate-heart-pop' : ''}`} />
             </button>
           </>
         ) : (
-          <div className="flex items-center gap-2.5 text-neutral-500">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-neutral-900 border border-neutral-800/80">
-              <Music2 className="h-5 w-5 text-neutral-600" />
+          <div className="flex items-center gap-3 text-neutral-500">
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-900/90 border border-neutral-800/80 shadow-inner group">
+              <BrandLogo
+                variant="mark"
+                className="h-6 w-6 opacity-80 group-hover:opacity-100 transition-opacity drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
+              />
             </div>
-            <span className="text-xs">暂无播放曲目</span>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-neutral-200">AkaEase</span>
+              <span className="text-xs text-neutral-500 font-mono">等待播放音乐</span>
+            </div>
           </div>
         )}
       </div>
@@ -111,7 +127,7 @@ export function PlayerBar() {
           <button
             onClick={() => playerActions.setShuffle(!shuffle)}
             title={shuffle ? '关闭随机播放' : '开启随机播放'}
-            className={`p-1.5 transition-colors rounded ${
+            className={`p-1.5 transition-colors rounded press-feedback-sm ${
               shuffle ? 'text-rose-400' : 'text-neutral-400 hover:text-neutral-200'
             }`}
           >
@@ -123,7 +139,7 @@ export function PlayerBar() {
             onClick={() => playerActions.previous()}
             disabled={!snapshot?.canPrevious}
             title="上一曲"
-            className="p-1.5 text-neutral-300 transition-colors hover:text-white disabled:opacity-30 disabled:hover:text-neutral-300"
+            className="p-1.5 text-neutral-300 transition-colors hover:text-white disabled:opacity-30 disabled:hover:text-neutral-300 press-feedback-sm"
           >
             <SkipBack className="h-4 w-4 fill-current" />
           </button>
@@ -133,7 +149,7 @@ export function PlayerBar() {
             onClick={() => playerActions.toggle()}
             disabled={!currentTrack && (snapshot?.queueLength ?? 0) === 0}
             title={isPlaying ? '暂停' : '播放'}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-600 text-white shadow-md shadow-rose-900/40 transition-transform active:scale-95 hover:bg-rose-500 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-600 text-white shadow-md shadow-rose-900/40 transition-all duration-150 hover:bg-rose-500 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -149,7 +165,7 @@ export function PlayerBar() {
             onClick={() => playerActions.next()}
             disabled={!snapshot?.canNext}
             title="下一曲"
-            className="p-1.5 text-neutral-300 transition-colors hover:text-white disabled:opacity-30 disabled:hover:text-neutral-300"
+            className="p-1.5 text-neutral-300 transition-colors hover:text-white disabled:opacity-30 disabled:hover:text-neutral-300 press-feedback-sm"
           >
             <SkipForward className="h-4 w-4 fill-current" />
           </button>
@@ -158,7 +174,7 @@ export function PlayerBar() {
           <button
             onClick={cycleRepeat}
             title={repeat === 'off' ? '顺序播放' : repeat === 'all' ? '列表循环' : '单曲循环'}
-            className={`p-1.5 transition-colors rounded ${
+            className={`p-1.5 transition-colors rounded press-feedback-sm ${
               repeat !== 'off' ? 'text-rose-400' : 'text-neutral-400 hover:text-neutral-200'
             }`}
           >
@@ -176,7 +192,7 @@ export function PlayerBar() {
         <button
           onClick={() => viewActions.toggleLyrics()}
           title={isLyricsOpen ? '收起歌词' : '展开歌词'}
-          className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+          className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors press-feedback-sm ${
             isLyricsOpen
               ? 'bg-rose-500/20 text-rose-400 font-medium'
               : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'
@@ -193,7 +209,7 @@ export function PlayerBar() {
         <button
           onClick={() => viewActions.toggleQueue()}
           title="播放队列"
-          className={`relative p-1.5 rounded transition-colors ${
+          className={`relative p-1.5 rounded transition-colors press-feedback-sm ${
             isQueueOpen
               ? 'bg-rose-500/20 text-rose-400'
               : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'

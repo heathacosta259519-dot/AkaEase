@@ -5,6 +5,7 @@ pub mod api;
 #[cfg(feature = "audio")]
 pub mod audio;
 pub mod cache;
+mod covers;
 mod credentials;
 pub mod diagnostics;
 pub mod error;

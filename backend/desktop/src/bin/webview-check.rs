@@ -10,7 +10,13 @@ use akanetease_backend::{
     storage::{AppConfig, AppPaths},
 };
 use akanetease_desktop::{Backend, commands, forward_player_events, persistence::Persistence};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 use tauri::{Listener, Manager};
 struct LocalAudio(String);
 impl SourceResolver for LocalAudio {
@@ -26,6 +32,68 @@ impl SourceResolver for LocalAudio {
         })
     }
 }
+fn playlist_fixture() -> NeteaseClient {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}/", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let mut song_requests = 0;
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") && header.len() < 16384 {
+                let mut byte = [0];
+                if stream.read(&mut byte).unwrap_or(0) == 0 {
+                    break;
+                }
+                header.push(byte[0]);
+            }
+            let request = String::from_utf8_lossy(&header);
+            let url = request.split_whitespace().nth(1).and_then(|path| {
+                tauri::Url::parse("http://127.0.0.1/")
+                    .unwrap()
+                    .join(path)
+                    .ok()
+            });
+            let value = match url {
+                Some(url) if url.path() == "/api/v6/playlist/detail" => serde_json::json!({
+                    "code":200,"playlist":{"name":"Synthetic background playlist","trackCount":2005,
+                    "trackIds":(1..=2005).map(|id| serde_json::json!({"id":id})).collect::<Vec<_>>()}
+                }),
+                Some(url) if url.path() == "/api/song/detail/" => {
+                    song_requests += 1;
+                    // The second batch is the first background request after the page renders.
+                    if song_requests == 2 {
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                    let ids: Vec<u64> = serde_json::from_str(
+                        &url.query_pairs().find(|(key, _)| key == "ids").unwrap().1,
+                    )
+                    .unwrap();
+                    serde_json::json!({"code":200,"songs":ids.into_iter().map(|id| serde_json::json!({
+                        "id":id,"name":format!("Synthetic {id}"),"artists":[],"album":{"id":1,"name":"Acceptance"},"duration":90000
+                    })).collect::<Vec<_>>()})
+                }
+                Some(url) if url.path() == "/api/song/lyric" => {
+                    serde_json::json!({"code":200,"nolyric":true})
+                }
+                _ => serde_json::json!({"code":404}),
+            };
+            let body = serde_json::to_vec(&value).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream
+                .write_all(response.as_bytes())
+                .and_then(|_| stream.write_all(&body));
+        }
+    });
+    NeteaseClient::local_fixture(&origin).unwrap()
+}
+
 fn main() {
     let root = PathBuf::from(
         std::env::var_os("AKA_WEBVIEW_CHECK_DIR")
@@ -88,7 +156,7 @@ fn main() {
             });
             app.manage(Backend {
                 account: Arc::new(AccountService::ephemeral()),
-                music: NeteaseClient::new()?,
+                music: playlist_fixture(),
                 player: player.clone(),
                 persistence,
             });

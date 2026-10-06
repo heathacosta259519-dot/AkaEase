@@ -14,6 +14,8 @@ import { DiscoverView } from './views/DiscoverView';
 import { DailyView } from './views/DailyView';
 import { LikedView } from './views/LikedView';
 import { PlaylistView } from './views/PlaylistView';
+import { ArtistView } from './views/ArtistView';
+import { AlbumView } from './views/AlbumView';
 import { SearchView } from './views/SearchView';
 import { SettingsView } from './views/SettingsView';
 
@@ -80,12 +82,16 @@ export default function App() {
       lyricsView={<LyricsView />}
       loginModal={<LoginModal />}
     >
-      {currentView === 'discover' && <DiscoverView />}
-      {currentView === 'daily' && <DailyView />}
-      {currentView === 'liked' && <LikedView />}
-      {currentView === 'playlist' && <PlaylistView />}
-      {currentView === 'search' && <SearchView />}
-      {currentView === 'settings' && <SettingsView />}
+      <div key={currentView} className="animate-view-fade min-h-full">
+        {currentView === 'discover' && <DiscoverView />}
+        {currentView === 'daily' && <DailyView />}
+        {currentView === 'liked' && <LikedView />}
+        {currentView === 'playlist' && <PlaylistView />}
+        {currentView === 'artist' && <ArtistView />}
+        {currentView === 'album' && <AlbumView />}
+        {currentView === 'search' && <SearchView />}
+        {currentView === 'settings' && <SettingsView />}
+      </div>
     </AppLayout>
   );
 }

@@ -9,6 +9,7 @@ publish = false
 default = ["audio"]
 audio = ["dep:gstreamer"]
 mpris = ["audio", "dep:mpris-server"]
+test-support = []
 
 [dependencies]
 gstreamer = { version = "0.24", optional = true }

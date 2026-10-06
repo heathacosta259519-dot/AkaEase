@@ -89,6 +89,39 @@ fn registered_ipc_changes_actor_and_publishes_versioned_events() {
         .unwrap();
     assert!(invoke(&other, "player_snapshot", json!({})).is_err());
     assert!(invoke_from(&window, "player_snapshot", json!({}), "https://example.com").is_err());
+    for command in [
+        "music_artist_detail",
+        "music_album_detail",
+        "music_artist_songs",
+        "music_artist_albums",
+    ] {
+        let body = json!({"id":"0","offset":0,"limit":20});
+        // Invalid IDs reach the handler without making an external network request.
+        assert_eq!(
+            invoke(&window, command, body.clone()).unwrap_err()["code"],
+            "invalid_input",
+            "{command} must be permitted for the local main window"
+        );
+        assert!(
+            invoke(&other, command, body.clone())
+                .unwrap_err()
+                .is_string()
+        );
+        assert!(
+            invoke_from(&window, command, body, "https://example.com")
+                .unwrap_err()
+                .is_string()
+        );
+    }
+    assert_eq!(
+        invoke(
+            &window,
+            "music_artist_albums",
+            json!({"id":"1","offset":0,"limit":0})
+        )
+        .unwrap_err()["code"],
+        "invalid_input"
+    );
     let changed = invoke(&window, "player_volume", json!({"volume":0.4})).unwrap();
     assert!((changed["playback"]["volume"].as_f64().unwrap() - 0.4).abs() < 0.000001);
     let event: Value =
@@ -102,13 +135,52 @@ fn registered_ipc_changes_actor_and_publishes_versioned_events() {
     let replaced = invoke(
         &window,
         "player_replace",
-        json!({"tracks":[track],"selected":0,"autoplay":false}),
+        json!({"tracks":[track.clone()],"selected":0,"autoplay":false}),
     )
     .unwrap();
     assert_eq!(
         invoke(&window, "player_queue", json!({})).unwrap()["revision"],
         replaced["queueRevision"]
     );
+    let expanded = invoke(
+        &window,
+        "player_expand",
+        json!({"tracks":[track.clone(),track.clone()],"revision":replaced["queueRevision"]}),
+    )
+    .unwrap();
+    assert_eq!(expanded["queueLength"], 2);
+    assert_eq!(expanded["selectionId"], replaced["selectionId"]);
+    assert_eq!(expanded["playback"], replaced["playback"]);
+    assert_eq!(
+        invoke(
+            &window,
+            "player_expand",
+            json!({"tracks":[track.clone()],"revision":replaced["queueRevision"]})
+        )
+        .unwrap_err()["code"],
+        "stale_operation"
+    );
+    for (window, origin) in [
+        (&other, "tauri://localhost"),
+        (&window, "https://example.com"),
+    ] {
+        assert!(
+            invoke_from(
+                window,
+                "player_expand",
+                json!({"tracks":[track.clone()],"revision":expanded["queueRevision"]}),
+                origin
+            )
+            .unwrap_err()
+            .is_string()
+        );
+    }
+    invoke(
+        &window,
+        "player_replace",
+        json!({"tracks":[track],"selected":0,"autoplay":false}),
+    )
+    .unwrap();
     assert_eq!(
         invoke(&window, "player_select", json!({"index":0,"revision":"0"})).unwrap_err()["code"],
         "stale_operation"

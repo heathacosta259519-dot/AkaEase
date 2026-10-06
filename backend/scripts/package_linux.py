@@ -19,11 +19,8 @@ def stage(binary, destination):
         binary: "usr/bin/akanetease-desktop",
         BACKEND / "desktop/icons/icon.png": "usr/share/icons/hicolor/32x32/apps/io.akanetease.desktop.png",
         BACKEND / "packaging/io.akanetease.desktop.desktop": "usr/share/applications/io.akanetease.desktop.desktop",
+        BACKEND / "packaging/README.md": "usr/share/doc/akanetease-desktop/README.md",
     }
-    readme_path = BACKEND / "packaging/README.md"
-    if readme_path.is_file():
-        files[readme_path] = "usr/share/doc/akanetease-desktop/README.md"
-
     for source, relative in files.items():
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)

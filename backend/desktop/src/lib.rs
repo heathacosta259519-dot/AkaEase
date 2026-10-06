@@ -49,6 +49,33 @@ async fn music_tracks(state: State<'_, Backend>, ids: Vec<String>) -> Result<Vec
     state.music.tracks(&ids).await
 }
 #[tauri::command]
+async fn music_artist_detail(
+    state: State<'_, Backend>,
+    id: String,
+) -> Result<akanetease_backend::model::ArtistDetail> {
+    state.music.artist_detail(&id).await
+}
+#[tauri::command]
+async fn music_artist_songs(state: State<'_, Backend>, id: String) -> Result<Vec<Track>> {
+    state.music.artist_songs(&id).await
+}
+#[tauri::command]
+async fn music_artist_albums(
+    state: State<'_, Backend>,
+    id: String,
+    offset: u32,
+    limit: u32,
+) -> Result<Page<akanetease_backend::model::AlbumSummary>> {
+    state.music.artist_albums(&id, offset, limit).await
+}
+#[tauri::command]
+async fn music_album_detail(
+    state: State<'_, Backend>,
+    id: String,
+) -> Result<akanetease_backend::model::AlbumDetail> {
+    state.music.album_detail(&id).await
+}
+#[tauri::command]
 async fn music_playlist(
     state: State<'_, Backend>,
     id: String,
@@ -163,6 +190,17 @@ async fn player_replace(
             selected,
             autoplay,
         })
+        .await
+}
+#[tauri::command]
+async fn player_expand(
+    state: State<'_, Backend>,
+    tracks: Vec<Track>,
+    revision: String,
+) -> Result<PlayerSnapshot> {
+    state
+        .player
+        .command(PlayerCommand::Expand { tracks, revision })
         .await
 }
 #[tauri::command]
@@ -289,6 +327,10 @@ pub fn commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         cache_clear,
         music_search,
         music_tracks,
+        music_artist_detail,
+        music_artist_songs,
+        music_artist_albums,
+        music_album_detail,
         music_playlist,
         music_lyrics,
         login_begin,
@@ -304,6 +346,7 @@ pub fn commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         player_snapshot,
         player_queue,
         player_replace,
+        player_expand,
         player_select,
         player_remove,
         player_play,

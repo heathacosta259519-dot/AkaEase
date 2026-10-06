@@ -35,6 +35,39 @@ export interface PlaylistPage {
   unavailableIds: string[];
 }
 
+export interface ArtistDetail {
+  id: string;
+  name: string;
+  coverUrl: string | null;
+  aliases: string[];
+  briefDescription: string | null;
+  musicSize: number;
+  albumSize: number;
+}
+
+export interface AlbumSummary {
+  id: string;
+  name: string;
+  coverUrl: string | null;
+  artist: Artist | null;
+  artists: Artist[];
+  publishTimeMs: number | null;
+  trackCount: number;
+}
+
+export interface AlbumDetail {
+  id: string;
+  name: string;
+  coverUrl: string | null;
+  artist: Artist | null;
+  artists: Artist[];
+  description: string | null;
+  publishTimeMs: number | null;
+  company: string | null;
+  trackCount: number;
+  tracks: Track[];
+}
+
 export interface LyricLine {
   timeMs: number;
   text: string;

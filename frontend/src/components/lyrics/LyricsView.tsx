@@ -18,6 +18,7 @@ import { usePlayerStore, playerActions, getCurrentPositionMs } from '../../store
 import { useSessionStore } from '../../stores/sessionStore';
 import { ProgressBar } from '../player/ProgressBar';
 import { VolumeControl } from '../player/VolumeControl';
+import { BrandLogo } from '../common/BrandLogo';
 import { getLyrics } from '../../services/api';
 import type { LyricLine, RepeatMode } from '../../types/backend';
 
@@ -109,7 +110,7 @@ export function LyricsView() {
   if (!isLyricsOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex h-full w-full flex-col bg-[#121214] select-none overflow-hidden overscroll-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex h-full w-full flex-col bg-[#121214] select-none overflow-hidden overscroll-none animate-lyrics-up">
       {/* Dynamic Ambient Background with Vibrant Album Artwork */}
       {currentTrack?.album.coverUrl && (
         <div
@@ -117,6 +118,13 @@ export function LyricsView() {
           style={{ backgroundImage: `url(${currentTrack.album.coverUrl})` }}
         />
       )}
+      {/* Deep Ambient Brand Mark Watermark (Apple Music style subtle space depth) */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
+        <BrandLogo
+          variant="mark"
+          className="h-[680px] w-[680px] opacity-[0.025] blur-[1px] select-none"
+        />
+      </div>
       {/* High-quality cinematic radial vignette preserving contrast & rich album colors */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -131,7 +139,7 @@ export function LyricsView() {
           type="button"
           data-tauri-drag-region="false"
           onClick={() => viewActions.setLyricsOpen(false)}
-          className="group inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+          className="group inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer press-feedback-sm"
         >
           <ChevronDown className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
           <span>收起歌词</span>
@@ -151,7 +159,7 @@ export function LyricsView() {
             type="button"
             onClick={() => viewActions.toggleQueue()}
             title="播放队列"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer press-feedback-sm"
           >
             <ListMusic className="h-4 w-4" />
             <span>队列 ({snapshot?.queueLength ?? 0})</span>
@@ -192,8 +200,14 @@ export function LyricsView() {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-neutral-800 text-neutral-500">
-                    <Music2 className="h-14 w-14" />
+                  <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-neutral-900 to-neutral-950 p-6">
+                    <BrandLogo
+                      variant="mark"
+                      className="h-20 w-20 drop-shadow-[0_4px_16px_rgba(249,38,54,0.35)]"
+                    />
+                    <span className="mt-2 text-[10px] tracking-widest uppercase font-semibold text-neutral-500 font-mono">
+                      AkaEase Vinyl
+                    </span>
                   </div>
                 )}
                 {/* Spindle hole */}
@@ -229,8 +243,8 @@ export function LyricsView() {
                     onClick={() => playerActions.seek(line.timeMs)}
                     className={`group cursor-pointer transition-all duration-300 py-1.5 px-6 rounded-2xl ${
                       isActive
-                        ? 'text-white font-semibold'
-                        : 'text-white/30 hover:text-white/70 font-normal'
+                        ? 'text-white font-semibold scale-[1.03] drop-shadow-[0_2px_12px_rgba(255,255,255,0.22)]'
+                        : 'text-white/30 hover:text-white/70 hover:scale-[1.01] font-normal'
                     }`}
                   >
                     <p className="text-lg leading-relaxed tracking-wide select-text">

@@ -95,4 +95,141 @@
   animation-play-state: paused;
 }
 
+/* ==========================================================================
+   Emil-Design-Eng 物理微交互与平滑动画基础设施
+   ========================================================================== */
+
+/* 视图平滑切换 (消除硬切跳变) */
+@keyframes view-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-view-fade {
+  animation: view-fade 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 模态框弹性展开 (Apple 风格微缩放) */
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-modal-pop {
+  animation: modal-pop 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 遮罩半透明平滑淡入 */
+@keyframes backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-backdrop-in {
+  animation: backdrop-fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 抽屉平滑滑入 (空间连续性) */
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-drawer-in {
+  animation: drawer-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 全屏歌词向上滑起展开 */
+@keyframes lyrics-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-lyrics-up {
+  animation: lyrics-slide-up 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 喜欢按钮弹跳微动效 (Heart Pop) */
+@keyframes heart-pop {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.82);
+  }
+  60% {
+    transform: scale(1.24);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-heart-pop {
+  animation: heart-pop 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 硬件物理按压微缩放与触感辅助类 */
+.press-feedback {
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.press-feedback:active {
+  transform: scale(0.94);
+}
+
+.press-feedback-sm {
+  transition: transform 100ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.press-feedback-sm:active {
+  transform: scale(0.97);
+}
+
+/* 尊重系统减弱动态效果偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-view-fade,
+  .animate-modal-pop,
+  .animate-drawer-in,
+  .animate-lyrics-up,
+  .animate-heart-pop,
+  .vinyl-disc-spin,
+  .eq-bar-1,
+  .eq-bar-2,
+  .eq-bar-3 {
+    animation: none !important;
+    transform: none !important;
+  }
+  .press-feedback,
+  .press-feedback-sm {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+
 

@@ -55,12 +55,16 @@ impl Queue {
     pub fn current(&self) -> Option<&Track> {
         self.current_index().and_then(|i| self.tracks.get(i))
     }
-    pub fn replace(&mut self, tracks: Vec<Track>, selected: usize) -> Result<()> {
+    pub fn replace(&mut self, mut tracks: Vec<Track>, selected: usize) -> Result<()> {
         if (!tracks.is_empty() && selected >= tracks.len()) || (tracks.is_empty() && selected != 0)
         {
             return Err(BackendError::InvalidInput(
                 "queue index out of range".into(),
             ));
+        }
+        for track in &mut tracks {
+            track.album.cover_url =
+                crate::covers::album_cover(&track.album.id, track.album.cover_url.take());
         }
         self.tracks = tracks;
         self.order = (0..self.tracks.len()).collect();
@@ -167,6 +171,27 @@ mod tests {
             },
             duration_ms: 1000,
         }
+    }
+    #[test]
+    fn old_queue_cover_is_repaired_without_changing_track_or_selection() {
+        let mut original = track("1369094279");
+        original.album.id = "79543884".into();
+        original.album.name = "By The Way".into();
+        original.album.cover_url =
+            Some("https://p3.music.126.net/Uk_AkI1cDZNn1fn_jl_Snw==/18268385696067264.jpg".into());
+        let mut queue = Queue::default();
+        queue.replace(vec![original.clone()], 0).unwrap();
+        let restored = queue.current().unwrap();
+        assert_eq!(queue.current_index(), Some(0));
+        assert_eq!(restored.id, original.id);
+        assert_eq!(restored.title, original.title);
+        assert_eq!(restored.album.id, original.album.id);
+        assert_eq!(restored.album.name, original.album.name);
+        assert_eq!(restored.duration_ms, original.duration_ms);
+        assert_eq!(
+            restored.album.cover_url.as_deref(),
+            Some("https://p1.music.126.net/xdCW-LmznfEJFivWyV7a_Q==/109951164116268622.jpg")
+        );
     }
     #[test]
     fn duplicate_entries_and_shuffle_preserve_selection() {

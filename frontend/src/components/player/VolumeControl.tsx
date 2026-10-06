@@ -29,7 +29,7 @@ export function VolumeControl() {
       <button
         onClick={toggleMute}
         title={volume === 0 ? '取消静音' : '静音'}
-        className="p-1 hover:text-neutral-100 rounded transition-colors"
+        className="p-1 hover:text-neutral-100 rounded transition-colors press-feedback-sm"
       >
         <Icon className="h-4 w-4" />
       </button>

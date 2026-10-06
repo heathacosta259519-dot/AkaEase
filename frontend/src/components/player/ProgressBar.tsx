@@ -84,7 +84,7 @@ export function ProgressBar({ className = '', isFullWidth = false }: ProgressBar
 
   return (
     <div className={`flex w-full ${isFullWidth ? 'max-w-none' : 'max-w-lg'} items-center gap-3 select-none ${className}`}>
-      <span ref={timeRef} className="w-10 text-right font-mono text-[11px] text-neutral-400 shrink-0">
+      <span ref={timeRef} className="w-11 text-right font-mono text-xs font-medium text-neutral-400 shrink-0">
         {formatDuration(currentDisplayMs)}
       </span>
 
@@ -121,7 +121,7 @@ export function ProgressBar({ className = '', isFullWidth = false }: ProgressBar
         />
       </div>
 
-      <span className="w-10 text-left font-mono text-[11px] text-neutral-500 shrink-0">
+      <span className="w-11 text-left font-mono text-xs font-medium text-neutral-500 shrink-0">
         {formatDuration(durationMs)}
       </span>
     </div>

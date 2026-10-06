@@ -60,7 +60,7 @@ export function DiscoverView() {
             {profile ? (
               <button
                 onClick={() => viewActions.navigate('daily')}
-                className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-medium text-white shadow-md shadow-rose-900/30 hover:bg-rose-500 transition-colors"
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-medium text-white shadow-md shadow-rose-900/30 hover:bg-rose-500 transition-colors press-feedback-sm"
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
                 <span>开启今日推荐</span>
@@ -68,7 +68,7 @@ export function DiscoverView() {
             ) : (
               <button
                 onClick={() => sessionActions.openLoginModal()}
-                className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-medium text-white shadow-md shadow-rose-900/30 hover:bg-rose-500 transition-colors"
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-medium text-white shadow-md shadow-rose-900/30 hover:bg-rose-500 transition-colors press-feedback-sm"
               >
                 <span>扫码登录查看个人曲库</span>
               </button>
@@ -98,18 +98,18 @@ export function DiscoverView() {
               <div
                 key={pl.id}
                 onClick={() => viewActions.openPlaylist(pl.id)}
-                className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-neutral-800/80 bg-neutral-900/50 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-neutral-700 hover:bg-neutral-900 cursor-pointer shadow-sm"
+                className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-neutral-800/80 bg-neutral-900/50 p-4 transition-all duration-200 hover:-translate-y-1 hover:border-neutral-700 hover:bg-neutral-900/90 hover:shadow-xl hover:shadow-rose-950/20 active:scale-[0.985] cursor-pointer shadow-sm"
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${pl.coverColor} opacity-20 transition-opacity group-hover:opacity-40`} />
+                <div className={`absolute inset-0 bg-gradient-to-br ${pl.coverColor} opacity-20 transition-opacity duration-300 group-hover:opacity-40`} />
 
                 <div className="relative z-10 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-semibold tracking-wider text-rose-400 uppercase">
                       {pl.tag}
                     </span>
-                    <Icon className="h-4 w-4 text-neutral-400 group-hover:text-rose-400 transition-colors" />
+                    <Icon className="h-4 w-4 text-neutral-400 group-hover:text-rose-400 group-hover:scale-110 transition-all duration-200" />
                   </div>
-                  <h3 className="text-base font-semibold text-neutral-100 group-hover:text-white">
+                  <h3 className="text-base font-semibold text-neutral-100 group-hover:text-white transition-colors">
                     {pl.title}
                   </h3>
                   <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
@@ -118,7 +118,7 @@ export function DiscoverView() {
                 </div>
 
                 <div className="relative z-10 pt-4 flex items-center justify-end">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-neutral-200 opacity-0 shadow transition-all duration-200 group-hover:opacity-100 group-hover:scale-105 group-hover:bg-rose-600 group-hover:text-white">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-neutral-200 opacity-0 translate-y-1 shadow transition-all duration-200 group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-105 group-hover:bg-rose-600 group-hover:text-white">
                     <Play className="h-3.5 w-3.5 fill-current ml-0.5" />
                   </div>
                 </div>

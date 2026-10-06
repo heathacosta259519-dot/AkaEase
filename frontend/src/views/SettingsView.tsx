@@ -18,6 +18,7 @@ import {
 } from '../services/api';
 import type { BackendStatus, AppConfig, CacheStats } from '../types/backend';
 import { formatBytes } from '../utils/format';
+import { BrandLogo } from '../components/common/BrandLogo';
 
 export function SettingsView() {
   const [status, setStatus] = useState<BackendStatus | null>(null);
@@ -266,6 +267,22 @@ export function SettingsView() {
             }
             className="h-4 w-4 rounded accent-rose-500 cursor-pointer"
           />
+        </div>
+      </section>
+
+      {/* About AkaEase Brand Section */}
+      <section className="rounded-2xl border border-neutral-800/80 bg-neutral-900/40 p-6 flex flex-col items-center justify-center text-center space-y-3">
+        <BrandLogo
+          variant="full"
+          className="h-10 drop-shadow-[0_2px_12px_rgba(249,38,54,0.35)]"
+        />
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-neutral-200">
+            AkaEase Linux 原生音乐客户端 v0.1.0
+          </p>
+          <p className="text-[11px] text-neutral-500 font-mono">
+            Powered by Tauri 2 · GStreamer Engine · Linux MPRIS
+          </p>
         </div>
       </section>
     </div>

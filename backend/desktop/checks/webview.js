@@ -21,6 +21,12 @@
     // Let initial session restore finish before sending playback commands.
     await delay(300);
     if ((await invoke('session_snapshot')).profile !== null) throw new Error('account isolation');
+    for (const command of ['music_artist_detail', 'music_album_detail', 'music_artist_songs', 'music_artist_albums']) {
+      let error;
+      try { await invoke(command, {id:'0',offset:0,limit:20}); } catch (result) { error = result; }
+      if (error?.code !== 'invalid_input') throw new Error(`${command} blocked before ID validation: ${JSON.stringify(error)}`);
+      checks.push(`${command} reaches backend through real Tauri IPC`);
+    }
     textButton('设置').click();
     await until('Settings loaded through real Tauri IPC', () => document.body.textContent.includes('正常 (Ready)'));
     const checkbox = document.querySelector('input[type="checkbox"]');
@@ -53,6 +59,32 @@
     button('展开歌词').click();
     await until('Lyrics view consumes cached backend lyrics', () => document.body.textContent.includes('Synthetic lyric for WebView check'));
     textButton('收起歌词').click();
+    await invoke('player_pause');
+    await until('Audio paused before background expansion', async () => (await state()).playback.state === 'paused' && button('播放'));
+    const beforeExpansion = await state();
+    const expandedTracks = [track('2'), ...Array.from({length:2004}, (_, index) => track(String(index + 3)))];
+    await invoke('player_expand', {tracks:expandedTracks,revision:beforeExpansion.queueRevision});
+    await until('Queue expands to 2005 tracks without changing selection or paused audio', async () => {
+      const snapshot = await state();
+      return snapshot.queueLength === 2005 && snapshot.selectionId === beforeExpansion.selectionId && snapshot.current.id === '2' && snapshot.playback.state === beforeExpansion.playback.state && snapshot.playback.positionMs === beforeExpansion.playback.positionMs;
+    });
+    button('播放').click();
+    await until('Expanded queue resumes real audio without reselecting', async () => (await state()).playback.state === 'playing' && (await state()).selectionId === beforeExpansion.selectionId);
+    textButton('发现音乐').click();
+    [...document.querySelectorAll('h3')].find(el => el.textContent === '热歌榜').click();
+    await until('Large playlist renders its first 100 songs', () => document.querySelectorAll('.song-table-row').length === 100);
+    document.querySelectorAll('.song-table-row')[56].dispatchEvent(new MouseEvent('dblclick', {bubbles:true}));
+    await until('Double click starts selected audio before slow background pages complete', async () => {
+      const snapshot = await state();
+      return snapshot.current?.id === '57' && snapshot.queueLength === 100 && snapshot.playback.state === 'playing';
+    });
+    const started = await state();
+    button('暂停').click();
+    await until('Pause remains usable during background loading', async () => (await state()).playback.state === 'paused');
+    await until('Background completes all 2005 songs without restarting paused audio', async () => {
+      const snapshot = await state();
+      return snapshot.queueLength === 2005 && snapshot.current?.id === '57' && snapshot.selectionId === started.selectionId && snapshot.playback.state === 'paused';
+    });
     await invoke('player_stop');
     if (violations.length) throw new Error(`CSP violations: ${violations.join(',')}`);
     await invoke('plugin:event|emit', {event:'webview-check-result',payload:{ok:true,checks,origin:location.origin,violations}});

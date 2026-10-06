@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Heart, Play, RefreshCw, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Heart, Play, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
 import { useSessionStore } from '../stores/sessionStore';
 import { viewActions } from '../stores/viewStore';
 import { getPlaylist } from '../services/api';
 import type { PlaylistPage } from '../types/backend';
 import { SongTable } from '../components/music/SongTable';
-import { playerActions } from '../stores/playerStore';
+import { playerActions, usePlayerStore } from '../stores/playerStore';
 
 export function LikedView() {
   const session = useSessionStore((s) => s.session);
@@ -14,10 +14,18 @@ export function LikedView() {
     userPlaylists?.likedPlaylistId ??
     userPlaylists?.items.find((p) => p.isLikedPlaylist)?.id ??
     null;
+  const queueLoading = usePlayerStore((s) => s.loadingPlaylistId === likedPlaylistId && likedPlaylistId !== null);
+  const queueError = usePlayerStore((s) => s.playlistError?.id === likedPlaylistId ? s.playlistError.message : null);
 
   const [playlist, setPlaylist] = useState<PlaylistPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+
+  const requestGenRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // If canonical liked playlist ID is already available, redirect directly to playlist view
   useEffect(() => {
@@ -42,16 +50,95 @@ export function LikedView() {
 
     setLoading(true);
     setError(null);
+    setLoadingMore(false);
+    setLoadMoreError(null);
+    const currentGen = ++requestGenRef.current;
+
     try {
       const data = await getPlaylist(likedPlaylistId, 0, 100);
-      setPlaylist(data);
+      if (currentGen === requestGenRef.current) {
+        setPlaylist(data);
+      }
     } catch (err) {
-      console.error('Failed to load liked playlist via music_playlist:', err);
-      setError('无法获取喜欢的音乐歌单，请检查网络后重试');
+      if (currentGen === requestGenRef.current) {
+        console.error('Failed to load liked playlist via music_playlist:', err);
+        setError('无法获取喜欢的音乐歌单，请检查网络后重试');
+      }
     } finally {
-      setLoading(false);
+      if (currentGen === requestGenRef.current) {
+        setLoading(false);
+      }
     }
   };
+
+  const loadNextPage = useCallback(async () => {
+    if (!likedPlaylistId || !playlist || loading || loadingMoreRef.current) return;
+    if (!playlist.tracks.hasMore) return;
+
+    const offset = playlist.tracks.items.length;
+    if (offset >= playlist.tracks.total) return;
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    const currentGen = requestGenRef.current;
+
+    try {
+      const nextPage = await getPlaylist(likedPlaylistId, offset, 100);
+      if (currentGen !== requestGenRef.current) return;
+
+      setPlaylist((prev) => {
+        if (!prev || prev.id !== likedPlaylistId) return prev;
+        const existingIds = new Set(prev.tracks.items.map((t) => t.id));
+        const incoming = nextPage.tracks.items.filter((t) => !existingIds.has(t.id));
+        const mergedItems = [...prev.tracks.items, ...incoming];
+        const unavailableSet = new Set([...prev.unavailableIds, ...nextPage.unavailableIds]);
+
+        return {
+          ...prev,
+          tracks: {
+            ...nextPage.tracks,
+            items: mergedItems,
+            offset,
+            hasMore:
+              nextPage.tracks.hasMore &&
+              incoming.length > 0 &&
+              mergedItems.length < prev.tracks.total,
+          },
+          unavailableIds: Array.from(unavailableSet),
+        };
+      });
+    } catch (err) {
+      if (currentGen !== requestGenRef.current) return;
+      console.error('Failed to load more liked tracks:', err);
+      setLoadMoreError('加载后续歌曲失败，请点击重试');
+    } finally {
+      if (currentGen === requestGenRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [likedPlaylistId, playlist, loading]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !playlist?.tracks.hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first && first.isIntersecting && !loadingMoreRef.current) {
+          loadNextPage();
+        }
+      },
+      {
+        rootMargin: '300px',
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [playlist?.tracks.hasMore, loadNextPage]);
 
   useEffect(() => {
     if (likedPlaylistId) {
@@ -66,7 +153,7 @@ export function LikedView() {
 
   const handlePlayAll = () => {
     if (playlist && playlist.tracks.items.length > 0) {
-      playerActions.replaceQueue(playlist.tracks.items, 0, true);
+      playerActions.replacePlaylistQueue(playlist.id, playlist.tracks.items);
     }
   };
 
@@ -86,10 +173,10 @@ export function LikedView() {
           <div className="pt-1 flex items-center gap-3">
             <button
               onClick={handlePlayAll}
-              disabled={!playlist || playlist.tracks.items.length === 0}
+              disabled={!playlist || playlist.tracks.items.length === 0 || queueLoading}
               className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-1.5 text-xs font-medium text-white shadow hover:bg-rose-500 disabled:opacity-40 transition-colors"
             >
-              <Play className="h-3.5 w-3.5 fill-current" />
+              {queueLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-current" />}
               <span>播放全部</span>
             </button>
             <button
@@ -116,10 +203,57 @@ export function LikedView() {
           <span>{error}</span>
         </div>
       ) : playlist ? (
-        <SongTable
-          tracks={playlist.tracks.items}
-          unavailableIds={playlist.unavailableIds}
-        />
+        <div className="space-y-4">
+          <SongTable
+            tracks={playlist.tracks.items}
+            unavailableIds={playlist.unavailableIds}
+            onPlayTrack={(track) => { playerActions.replacePlaylistQueue(playlist.id, playlist.tracks.items, track.id); }}
+          />
+          {queueLoading && <p role="status" className="text-xs text-neutral-400">正在后台补齐歌单...</p>}
+          {queueError && <p role="alert" className="text-xs text-rose-400">{queueError}</p>}
+
+          {/* Infinite Scroll Sentinel & Loading Indicator */}
+          <div
+            ref={sentinelRef}
+            className="py-6 flex flex-col items-center justify-center text-xs text-neutral-500"
+          >
+            {loadingMore && (
+              <div className="flex items-center gap-2 text-rose-400 font-medium py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
+                <span>
+                  正在加载更多歌曲 ({playlist.tracks.items.length} / {playlist.tracks.total})...
+                </span>
+              </div>
+            )}
+
+            {loadMoreError && (
+              <div className="flex flex-col items-center gap-2 text-neutral-400 py-2">
+                <span className="text-rose-400">{loadMoreError}</span>
+                <button
+                  onClick={loadNextPage}
+                  className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-neutral-700 transition-colors press-feedback-sm"
+                >
+                  点击重试
+                </button>
+              </div>
+            )}
+
+            {!playlist.tracks.hasMore && playlist.tracks.items.length > 50 && (
+              <div className="text-neutral-600 text-[11px] py-2">
+                —— 已加载全部 {playlist.tracks.items.length} 首歌曲 ——
+              </div>
+            )}
+
+            {playlist.tracks.hasMore && !loadingMore && !loadMoreError && (
+              <button
+                onClick={loadNextPage}
+                className="mt-1 text-xs text-neutral-400 hover:text-white px-4 py-1.5 rounded-lg border border-neutral-800 hover:bg-neutral-800 transition-colors press-feedback-sm"
+              >
+                加载更多歌曲 ({playlist.tracks.items.length} / {playlist.tracks.total})
+              </button>
+            )}
+          </div>
+        </div>
       ) : null}
     </div>
   );

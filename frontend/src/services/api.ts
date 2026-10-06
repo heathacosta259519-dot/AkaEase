@@ -1,7 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  AlbumDetail,
+  AlbumSummary,
   AppConfig,
+  ArtistDetail,
   BackendStatus,
   CacheStats,
   LyricLine,
@@ -33,6 +36,22 @@ export async function getTracks(ids: string[]): Promise<Track[]> {
 
 export async function getPlaylist(id: string, offset = 0, limit = 50): Promise<PlaylistPage> {
   return invoke('music_playlist', { id, offset, limit });
+}
+
+export async function getArtistDetail(id: string): Promise<ArtistDetail> {
+  return invoke('music_artist_detail', { id });
+}
+
+export async function getArtistSongs(id: string): Promise<Track[]> {
+  return invoke('music_artist_songs', { id });
+}
+
+export async function getArtistAlbums(id: string, offset = 0, limit = 30): Promise<Page<AlbumSummary>> {
+  return invoke('music_artist_albums', { id, offset, limit });
+}
+
+export async function getAlbumDetail(id: string): Promise<AlbumDetail> {
+  return invoke('music_album_detail', { id });
 }
 
 export async function getLyrics(id: string): Promise<LyricLine[]> {
@@ -105,6 +124,10 @@ export async function replaceQueue(
 
 export async function selectQueueItem(index: number, revision: string): Promise<PlayerSnapshot> {
   return invoke('player_select', { index, revision });
+}
+
+export async function expandQueue(tracks: Track[], revision: string): Promise<PlayerSnapshot> {
+  return invoke('player_expand', { tracks, revision });
 }
 
 export async function removeQueueItem(index: number, revision: string): Promise<PlayerSnapshot> {

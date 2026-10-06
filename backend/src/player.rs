@@ -115,6 +115,10 @@ pub enum PlayerCommand {
         selected: usize,
         autoplay: bool,
     },
+    Expand {
+        tracks: Vec<Track>,
+        revision: String,
+    },
     Select {
         index: usize,
         revision: String,
@@ -370,6 +374,34 @@ impl Actor {
                 } else {
                     self.cancel()?;
                 }
+            }
+            PlayerCommand::Expand { tracks, revision } => {
+                self.revision(&revision)?;
+                if tracks.len() > 10_000 {
+                    return Err(BackendError::InvalidInput("queue limit is 10000".into()));
+                }
+                for track in &tracks {
+                    validate_id(&track.id)?;
+                }
+                let current = self.queue.current().ok_or_else(|| {
+                    BackendError::InvalidInput("cannot expand an empty queue".into())
+                })?;
+                let index = self.queue.current_index().expect("current track index");
+                let occurrence = self.queue.snapshot().tracks[..index]
+                    .iter()
+                    .filter(|track| track.id == current.id)
+                    .count();
+                let selected = tracks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, track)| track.id == current.id)
+                    .nth(occurrence)
+                    .map(|(index, _)| index)
+                    .ok_or_else(|| {
+                        BackendError::InvalidInput("expanded queue missing current track".into())
+                    })?;
+                self.queue.replace(tracks, selected)?;
+                self.revision += 1;
             }
             PlayerCommand::Select { index, revision } => {
                 self.revision(&revision)?;

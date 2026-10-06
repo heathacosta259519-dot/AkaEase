@@ -105,7 +105,7 @@ sudo apt install libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugin
 
 ```bash
 # 1. 克隆公开仓库
-git clone https://github.com/your-username/AkaEase.git
+git clone https://github.com/heathacosta259519-dot/AkaEase.git
 cd AkaEase
 
 # 2. 一键编译前端生产产物并打包桌面程序

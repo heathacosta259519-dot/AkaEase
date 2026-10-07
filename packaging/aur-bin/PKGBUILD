@@ -1,0 +1,51 @@
+# Maintainer: akagisan <akagisan@localhost>
+pkgname=akaease-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A native, lightweight Linux music client for Netease Cloud Music built with Tauri 2 & Rust"
+arch=('x86_64')
+url="https://github.com/heathacosta259519-dot/AkaEase"
+license=('MIT')
+depends=(
+  'webkit2gtk-4.1'
+  'gstreamer'
+  'gst-plugins-base'
+  'gst-plugins-good'
+  'gst-plugins-bad'
+  'gst-plugins-ugly'
+  'libsecret'
+  'gtk3'
+  'cairo'
+  'glib2'
+  'openssl'
+)
+provides=('akaease' 'akanetease-desktop')
+conflicts=('akaease' 'akanetease-desktop')
+options=('!strip' '!debug')
+
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/heathacosta259519-dot/AkaEase/releases/download/v${pkgver}/akanetease-desktop-${pkgver}-linux-${CARCH}.tar.gz")
+sha256sums=('92ad6fa4eba3b8a6959c2ab21c2cc0f2714cca72d9c4ca0a2593550b07ef3f29')
+
+package() {
+  local extract_dir="${srcdir}/akanetease-desktop-${pkgver}-linux-${CARCH}"
+
+  # 安装基础目录
+  install -d "${pkgdir}/usr/bin"
+  install -d "${pkgdir}/usr/share/applications"
+  install -d "${pkgdir}/usr/share/icons/hicolor/32x32/apps"
+  install -d "${pkgdir}/usr/share/doc/${pkgname}"
+
+  # 安装可执行程序并创建快捷软链接
+  install -m755 "${extract_dir}/usr/bin/akanetease-desktop" "${pkgdir}/usr/bin/akanetease-desktop"
+  ln -sf akanetease-desktop "${pkgdir}/usr/bin/akaease"
+
+  # 安装桌面入口与应用图标
+  install -m644 "${extract_dir}/usr/share/applications/io.akanetease.desktop.desktop" \
+    "${pkgdir}/usr/share/applications/io.akanetease.desktop.desktop"
+  install -m644 "${extract_dir}/usr/share/icons/hicolor/32x32/apps/io.akanetease.desktop.png" \
+    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/io.akanetease.desktop.png"
+
+  # 安装说明文档
+  install -m644 "${extract_dir}/usr/share/doc/akanetease-desktop/README.md" \
+    "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}

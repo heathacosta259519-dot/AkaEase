@@ -4,7 +4,7 @@ use crate::{
     api::{NeteaseClient, validate_id},
     audio::{AudioEngine, AudioEvent, PlaybackSnapshot, PlaybackState},
     error::{BackendError, Result},
-    model::{StreamSource, Track},
+    model::{SoundQuality, StreamSource, Track},
     queue::{Queue, Repeat},
 };
 use serde::Serialize;
@@ -18,6 +18,13 @@ use tokio::{
 pub type ResolveFuture<'a> = Pin<Box<dyn Future<Output = Result<StreamSource>> + Send + 'a>>;
 pub trait SourceResolver: Send + Sync + 'static {
     fn resolve<'a>(&'a self, track: &'a Track) -> ResolveFuture<'a>;
+    fn resolve_quality<'a>(
+        &'a self,
+        track: &'a Track,
+        _quality: SoundQuality,
+    ) -> ResolveFuture<'a> {
+        self.resolve(track)
+    }
 }
 
 pub struct NeteaseResolver {
@@ -26,11 +33,14 @@ pub struct NeteaseResolver {
 }
 impl SourceResolver for NeteaseResolver {
     fn resolve<'a>(&'a self, track: &'a Track) -> ResolveFuture<'a> {
+        self.resolve_quality(track, SoundQuality::default())
+    }
+    fn resolve_quality<'a>(&'a self, track: &'a Track, quality: SoundQuality) -> ResolveFuture<'a> {
         Box::pin(async move {
             if self.account.snapshot().await.profile.is_some() {
-                self.account.stream(&track.id).await
+                self.account.stream_quality(&track.id, quality).await
             } else {
-                self.anonymous.stream(&track.id).await
+                self.anonymous.stream_quality(&track.id, quality).await
             }
         })
     }
@@ -87,6 +97,10 @@ pub struct PlayerSnapshot {
     pub current_index: Option<usize>,
     pub queue_length: usize,
     pub playback: PlaybackSnapshot,
+    pub target_quality: SoundQuality,
+    pub actual_quality: Option<SoundQuality>,
+    pub actual_bitrate: Option<u32>,
+    pub format: Option<String>,
     pub play_when_ready: bool,
     pub resolving: bool,
     pub repeat: Repeat,
@@ -141,6 +155,7 @@ pub enum PlayerCommand {
     },
     SeekRelative(i64),
     Volume(f64),
+    SetQuality(SoundQuality),
     Repeat(Repeat),
     Shuffle(bool),
     Shutdown,
@@ -157,6 +172,13 @@ pub struct PlayerHandle {
 }
 impl PlayerHandle {
     pub fn spawn(driver: impl AudioDriver, resolver: Arc<dyn SourceResolver>) -> Self {
+        Self::spawn_with_quality(driver, resolver, SoundQuality::default())
+    }
+    pub fn spawn_with_quality(
+        driver: impl AudioDriver,
+        resolver: Arc<dyn SourceResolver>,
+        quality: SoundQuality,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(64);
         let (resolved_tx, resolved_rx) = mpsc::channel(4);
         let mut actor = Actor {
@@ -181,6 +203,11 @@ impl PlayerHandle {
             seek_serial: 0,
             seek_position: 0,
             deadline: None,
+            target_quality: quality,
+            actual_quality: None,
+            actual_bitrate: None,
+            format: None,
+            quality_switch: false,
         };
         let (publisher, state) = watch::channel(actor.snapshot());
         tokio::spawn(async move {
@@ -241,15 +268,23 @@ struct Actor {
     seek_serial: u64,
     seek_position: u64,
     deadline: Option<Instant>,
+    target_quality: SoundQuality,
+    actual_quality: Option<SoundQuality>,
+    actual_bitrate: Option<u32>,
+    format: Option<String>,
+    quality_switch: bool,
 }
 impl Actor {
     fn snapshot(&self) -> PlayerSnapshot {
         let queue = self.queue.snapshot();
         let mut playback = self.driver.snapshot();
-        if self.resolving.is_some() {
+        if self.resolving.is_some() && !self.loaded {
             playback.state = PlaybackState::Loading;
-            playback.position_ms = 0;
+            playback.position_ms = self.retry_position.unwrap_or(0);
             playback.duration_ms = None;
+        } else if self.retry_position.is_some() && self.resolving.is_none() {
+            playback.state = PlaybackState::Loading;
+            playback.position_ms = self.retry_position.unwrap_or(0);
         }
         PlayerSnapshot {
             sequence: self.sequence.to_string(),
@@ -259,13 +294,17 @@ impl Actor {
             current_index: queue.current_index,
             queue_length: queue.tracks.len(),
             playback,
+            target_quality: self.target_quality,
+            actual_quality: self.actual_quality,
+            actual_bitrate: self.actual_bitrate,
+            format: self.format.clone(),
             play_when_ready: self.desired,
             resolving: self.resolving.is_some(),
             repeat: queue.repeat,
             shuffle: queue.shuffle,
             can_next: self.queue.can_next(),
             can_previous: self.queue.can_previous(),
-            can_seek: self.loaded && self.driver.can_seek(),
+            can_seek: self.loaded && self.retry_position.is_none() && self.driver.can_seek(),
             buffering_percent: self.buffering,
             is_preview: self.preview,
             last_error: self.error.clone(),
@@ -290,6 +329,10 @@ impl Actor {
         self.loaded = false;
         self.buffering = None;
         self.preview = false;
+        self.actual_quality = None;
+        self.actual_bitrate = None;
+        self.format = None;
+        self.quality_switch = false;
         self.deadline = None;
         self.retry_position = None;
         self.restored_position = None;
@@ -306,18 +349,25 @@ impl Actor {
         if retry {
             self.retry_position = Some(position);
         }
+        self.resolve(track);
+        Ok(())
+    }
+    fn resolve(&mut self, track: Track) {
         let generation = self.selection;
         self.resolving = Some(generation);
         self.deadline = Some(Instant::now() + Duration::from_secs(30));
         let resolver = self.resolver.clone();
         let tx = self.resolved_tx.clone();
+        let quality = self.target_quality;
         self.resolve_task = Some(tokio::spawn(async move {
-            let result = tokio::time::timeout(Duration::from_secs(20), resolver.resolve(&track))
-                .await
-                .unwrap_or(Err(BackendError::Timeout));
+            let result = tokio::time::timeout(
+                Duration::from_secs(20),
+                resolver.resolve_quality(&track, quality),
+            )
+            .await
+            .unwrap_or(Err(BackendError::Timeout));
             let _ = tx.send((generation, result)).await;
         }));
-        Ok(())
     }
     fn manual(&mut self) {
         self.failures = 0;
@@ -332,7 +382,7 @@ impl Actor {
         }
     }
     fn seek(&mut self, ms: u64) -> Result<()> {
-        if !self.loaded || !self.driver.can_seek() {
+        if !self.loaded || self.retry_position.is_some() || !self.driver.can_seek() {
             return Err(BackendError::Audio("current source cannot seek".into()));
         }
         self.driver.seek(ms)?;
@@ -427,9 +477,9 @@ impl Actor {
             PlayerCommand::Play => {
                 self.manual();
                 self.desired = true;
-                if self.loaded {
+                if self.loaded && self.retry_position.is_none() {
                     self.driver.play()?;
-                } else if self.resolving.is_none() {
+                } else if !self.loaded && self.resolving.is_none() {
                     let resume = self.restored_position.take();
                     self.start(false)?;
                     self.retry_position = resume;
@@ -498,6 +548,24 @@ impl Actor {
                 }
                 self.driver.volume(volume)?;
             }
+            PlayerCommand::SetQuality(quality) => {
+                if self.target_quality == quality && self.error.is_none() {
+                    return Ok(());
+                }
+                self.target_quality = quality;
+                if (self.loaded || self.resolving.is_some())
+                    && let Some(track) = self.queue.current().cloned()
+                {
+                    if let Some(task) = self.resolve_task.take() {
+                        task.abort();
+                    }
+                    self.selection += 1;
+                    self.manual();
+                    self.quality_switch = true;
+                    // Keep the loaded stream running until its replacement URL arrives.
+                    self.resolve(track);
+                }
+            }
             PlayerCommand::Repeat(repeat) => self.queue.set_repeat(repeat),
             PlayerCommand::Shuffle(shuffle) => self.queue.set_shuffle(shuffle),
         }
@@ -505,6 +573,20 @@ impl Actor {
     }
     fn fail(&mut self, error: BackendError, refresh: bool) {
         self.error = Some(error);
+        if self.quality_switch {
+            if let Some(task) = self.resolve_task.take() {
+                task.abort();
+            }
+            self.resolving = None;
+            self.quality_switch = false;
+            self.deadline = None;
+            self.retry_position = None;
+            if !self.loaded {
+                self.desired = false;
+                let _ = self.cancel();
+            }
+            return;
+        }
         if refresh && !self.retried && self.desired && self.start(true).is_ok() {
             return;
         }
@@ -540,9 +622,12 @@ impl Actor {
                     );
                     return;
                 }
-                self.preview = source.is_preview;
+                if self.quality_switch && self.loaded && self.retry_position.is_none() {
+                    self.retry_position = Some(self.driver.snapshot().position_ms);
+                }
+                self.loaded = false;
                 let result = self.driver.load(&source.url).and_then(|_| {
-                    if self.desired {
+                    if self.desired && self.retry_position.is_none() {
                         self.driver.play()
                     } else {
                         self.driver.pause()
@@ -552,6 +637,10 @@ impl Actor {
                     self.fail(error, true);
                 } else {
                     self.loaded = true;
+                    self.preview = source.is_preview;
+                    self.actual_quality = source.quality;
+                    self.actual_bitrate = (source.bitrate > 0).then_some(source.bitrate);
+                    self.format = source.format;
                 }
             }
             Err(error) => self.fail(error, false),
@@ -596,13 +685,35 @@ impl Actor {
             }
         }
         let state = self.driver.snapshot();
-        if self.loaded && matches!(state.state, PlaybackState::Playing | PlaybackState::Paused) {
-            self.deadline = None;
-            if let Some(position) = self.retry_position.take().filter(|&p| p > 0)
-                && let Err(error) = self.seek(position.min(state.duration_ms.unwrap_or(position)))
-            {
-                self.error = Some(error);
+        if self.loaded
+            && self.resolving.is_none()
+            && matches!(state.state, PlaybackState::Playing | PlaybackState::Paused)
+        {
+            if let Some(position) = self.retry_position {
+                if !self.driver.can_seek() {
+                    if self.deadline.is_some_and(|d| Instant::now() >= d) {
+                        self.loaded = false;
+                        let _ = self.driver.stop();
+                        self.fail(BackendError::Timeout, false);
+                    }
+                    return;
+                }
+                self.retry_position = None;
+                if let Err(error) = self.seek(position.min(state.duration_ms.unwrap_or(position))) {
+                    self.loaded = false;
+                    self.fail(error, false);
+                    return;
+                }
+                if self.desired
+                    && let Err(error) = self.driver.play()
+                {
+                    self.loaded = false;
+                    self.fail(error, false);
+                    return;
+                }
             }
+            self.deadline = None;
+            self.quality_switch = false;
         } else {
             if self.loaded {
                 self.deadline

@@ -382,6 +382,149 @@ export const sessionActions = {
     }
   },
 
+  async refreshUserPlaylists() {
+    try {
+      const playlists = await api.getUserPlaylists(0, 100);
+      store.setState({ userPlaylists: playlists });
+      return playlists;
+    } catch (err) {
+      console.error('Failed to refresh user playlists:', err);
+      throw err;
+    }
+  },
+
+  async toggleLikeTrack(trackId: string): Promise<boolean> {
+    const profile = store.getState().session?.profile;
+    if (!profile) {
+      sessionActions.openLoginModal();
+      return false;
+    }
+
+    const currentLiked = store.getState().likedIds;
+    const isCurrentlyLiked = currentLiked.has(trackId);
+    const targetLike = !isCurrentlyLiked;
+
+    // Optimistic update
+    const nextLiked = new Set(currentLiked);
+    if (targetLike) {
+      nextLiked.add(trackId);
+    } else {
+      nextLiked.delete(trackId);
+    }
+    store.setState({ likedIds: nextLiked });
+
+    try {
+      await api.trackLike(trackId, targetLike);
+      return targetLike;
+    } catch (err) {
+      // Rollback on failure
+      const rollback = new Set(store.getState().likedIds);
+      if (isCurrentlyLiked) {
+        rollback.add(trackId);
+      } else {
+        rollback.delete(trackId);
+      }
+      store.setState({ likedIds: rollback });
+      console.error(`Failed to ${targetLike ? 'like' : 'unlike'} track:`, err);
+      throw err;
+    }
+  },
+
+  async createPlaylist(name: string, privacy?: number) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new Error('歌单名称不能为空');
+    }
+    const created = await api.playlistCreate(trimmed, privacy);
+    const current = store.getState().userPlaylists;
+    if (current) {
+      // Insert new playlist at the start of user playlists (right after liked playlist if present)
+      const likedIndex = current.items.findIndex((p) => p.isLikedPlaylist);
+      const nextItems = [...current.items];
+      if (likedIndex >= 0) {
+        nextItems.splice(likedIndex + 1, 0, created);
+      } else {
+        nextItems.unshift(created);
+      }
+      store.setState({
+        userPlaylists: {
+          ...current,
+          items: nextItems,
+        },
+      });
+    }
+    return created;
+  },
+
+  async deletePlaylist(playlistId: string) {
+    await api.playlistDelete(playlistId);
+    const current = store.getState().userPlaylists;
+    if (current) {
+      store.setState({
+        userPlaylists: {
+          ...current,
+          items: current.items.filter((p) => p.id !== playlistId),
+        },
+      });
+    }
+  },
+
+  async subscribePlaylist(playlistId: string, subscribe: boolean) {
+    await api.playlistSubscribe(playlistId, subscribe);
+    // After subscribe/unsubscribe, refresh user playlist list to reflect latest state
+    try {
+      const refreshed = await api.getUserPlaylists(0, 100);
+      store.setState({ userPlaylists: refreshed });
+    } catch {
+      // Fallback: if unsubscribe, filter out locally
+      if (!subscribe) {
+        const current = store.getState().userPlaylists;
+        if (current) {
+          store.setState({
+            userPlaylists: {
+              ...current,
+              items: current.items.filter((p) => p.id !== playlistId),
+            },
+          });
+        }
+      }
+    }
+  },
+
+  async addTracksToPlaylist(playlistId: string, trackIds: string[]): Promise<number> {
+    if (trackIds.length === 0) return 0;
+    const addedCount = await api.playlistTracksOp(playlistId, trackIds, 'add');
+    const current = store.getState().userPlaylists;
+    if (current) {
+      store.setState({
+        userPlaylists: {
+          ...current,
+          items: current.items.map((p) =>
+            p.id === playlistId ? { ...p, trackCount: p.trackCount + addedCount } : p
+          ),
+        },
+      });
+    }
+    return addedCount;
+  },
+
+  async removeTracksFromPlaylist(playlistId: string, trackIds: string[]): Promise<number> {
+    if (trackIds.length === 0) return 0;
+    const removedCount = await api.playlistTracksOp(playlistId, trackIds, 'del');
+    const current = store.getState().userPlaylists;
+    if (current) {
+      store.setState({
+        userPlaylists: {
+          ...current,
+          items: current.items.map((p) =>
+            p.id === playlistId ? { ...p, trackCount: Math.max(0, p.trackCount - removedCount) } : p
+          ),
+        },
+      });
+    }
+    return removedCount;
+  },
+
   // Test helpers to reset internal generation state
   _resetForTesting() {
     loginGeneration = 0;

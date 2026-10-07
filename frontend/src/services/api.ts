@@ -18,7 +18,9 @@ import type {
   RepeatMode,
   SessionEventPayload,
   SessionSnapshot,
+  SoundQuality,
   Track,
+  UserPlaylist,
   UserPlaylists,
 } from '../types/backend';
 
@@ -102,6 +104,30 @@ export async function getDailyTracks(): Promise<Track[]> {
   return invoke('daily_tracks');
 }
 
+export async function trackLike(trackId: string, like: boolean): Promise<boolean> {
+  return invoke('track_like', { trackId, like });
+}
+
+export async function playlistCreate(name: string, privacy?: number): Promise<UserPlaylist> {
+  return invoke('playlist_create', { name, privacy });
+}
+
+export async function playlistDelete(playlistId: string): Promise<void> {
+  return invoke('playlist_delete', { playlistId });
+}
+
+export async function playlistTracksOp(
+  playlistId: string,
+  trackIds: string[],
+  op: 'add' | 'del',
+): Promise<number> {
+  return invoke('playlist_tracks_op', { playlistId, trackIds, op });
+}
+
+export async function playlistSubscribe(playlistId: string, subscribe: boolean): Promise<void> {
+  return invoke('playlist_subscribe', { playlistId, subscribe });
+}
+
 // ==========================================
 // 播放器控制 API
 // ==========================================
@@ -172,6 +198,10 @@ export async function setRepeat(repeat: RepeatMode): Promise<PlayerSnapshot> {
 
 export async function setShuffle(shuffle: boolean): Promise<PlayerSnapshot> {
   return invoke('player_shuffle', { shuffle });
+}
+
+export async function setQuality(quality: SoundQuality): Promise<PlayerSnapshot> {
+  return invoke('player_set_quality', { quality });
 }
 
 // ==========================================

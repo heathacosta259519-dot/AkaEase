@@ -80,6 +80,7 @@ export interface LyricLine {
 
 export type PlaybackState = 'stopped' | 'loading' | 'playing' | 'paused';
 export type RepeatMode = 'off' | 'one' | 'all';
+export type SoundQuality = 'standard' | 'higher' | 'exhigh' | 'lossless' | 'hires';
 
 export interface PlaybackSnapshot {
   state: PlaybackState;
@@ -103,6 +104,10 @@ export interface PlayerSnapshot {
   canNext: boolean;
   canPrevious: boolean;
   canSeek: boolean;
+  targetQuality: SoundQuality;
+  actualQuality: SoundQuality | null;
+  actualBitrate: number | null;
+  format: string | null;
   bufferingPercent: number | null;
   isPreview: boolean;
   lastError: BackendError | null;
@@ -207,6 +212,7 @@ export interface AppConfig {
   cacheLimitBytes: number;
   proxy: ProxyConfig;
   restoreQueue: boolean;
+  defaultQuality: SoundQuality;
 }
 
 export interface BackendStatus {

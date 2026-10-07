@@ -65,6 +65,8 @@ pub struct AppConfig {
     pub cache_limit_bytes: u64,
     pub proxy: ProxyConfig,
     pub restore_queue: bool,
+    #[serde(default)]
+    pub default_quality: crate::model::SoundQuality,
 }
 impl Default for AppConfig {
     fn default() -> Self {
@@ -73,6 +75,7 @@ impl Default for AppConfig {
             cache_limit_bytes: 32 * 1024 * 1024,
             proxy: ProxyConfig::System,
             restore_queue: true,
+            default_quality: Default::default(),
         }
     }
 }
@@ -273,6 +276,22 @@ pub fn save_player(paths: &AppPaths, player: &SavedPlayer) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn old_config_defaults_quality_and_all_quality_values_roundtrip() {
+        let old = serde_json::json!({"version":1,"cacheLimitBytes":33554432,"proxy":{"mode":"system"},"restoreQueue":true});
+        let config: AppConfig = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(config.default_quality, crate::model::SoundQuality::Exhigh);
+        for level in ["standard", "higher", "exhigh", "lossless", "hires"] {
+            let mut value = old.clone();
+            value["defaultQuality"] = serde_json::json!(level);
+            let config: AppConfig = serde_json::from_value(value.clone()).unwrap();
+            config.validate().unwrap();
+            assert_eq!(serde_json::to_value(config).unwrap(), value);
+        }
+        let mut invalid = old;
+        invalid["defaultQuality"] = serde_json::json!("unsupported");
+        assert!(serde_json::from_value::<AppConfig>(invalid).is_err());
+    }
     #[test]
     fn xdg_ignores_relative_paths_and_requires_an_absolute_base() {
         let paths = AppPaths::from_env(|k| match k {

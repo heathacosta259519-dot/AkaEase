@@ -14,9 +14,10 @@ import {
 } from 'lucide-react';
 import { usePlayerStore, playerActions } from '../../stores/playerStore';
 import { useViewStore, viewActions } from '../../stores/viewStore';
-import { useSessionStore } from '../../stores/sessionStore';
+import { useSessionStore, sessionActions } from '../../stores/sessionStore';
 import { ProgressBar } from './ProgressBar';
 import { VolumeControl } from './VolumeControl';
+import { SoundQualitySelector } from './SoundQualitySelector';
 import { BrandLogo } from '../common/BrandLogo';
 import type { RepeatMode } from '../../types/backend';
 
@@ -95,13 +96,13 @@ export function PlayerBar() {
             </div>
 
             <button
-              disabled
-              title={isLiked ? '已喜欢' : '喜欢'}
-              className={`p-1.5 transition-colors press-feedback-sm ${
+              onClick={() => sessionActions.toggleLikeTrack(currentTrack.id)}
+              title={isLiked ? '取消喜欢' : '喜欢这首歌'}
+              className={`p-1.5 transition-colors press-feedback-sm cursor-pointer ${
                 isLiked ? 'text-rose-500' : 'text-neutral-500 hover:text-neutral-300'
               }`}
             >
-              <Heart className={`h-4 w-4 ${isLiked ? 'fill-rose-500 animate-heart-pop' : ''}`} />
+              <Heart className={`h-4 w-4 ${isLiked ? 'fill-rose-500 text-rose-500 animate-heart-pop' : ''}`} />
             </button>
           </>
         ) : (
@@ -188,6 +189,9 @@ export function PlayerBar() {
 
       {/* Right: Auxiliary Controls */}
       <div className="flex w-1/4 min-w-[200px] items-center justify-end gap-3">
+        {/* Sound Quality Selector */}
+        <SoundQualitySelector />
+
         {/* Toggle Fullscreen Lyrics */}
         <button
           onClick={() => viewActions.toggleLyrics()}

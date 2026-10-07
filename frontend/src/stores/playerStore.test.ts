@@ -37,6 +37,10 @@ function createMockSnapshot(overrides: Partial<PlayerSnapshot> = {}): PlayerSnap
     canNext: true,
     canPrevious: false,
     canSeek: true,
+    targetQuality: 'exhigh',
+    actualQuality: 'exhigh',
+    actualBitrate: 320000,
+    format: 'mp3',
     bufferingPercent: null,
     isPreview: false,
     lastError: null,
@@ -320,5 +324,22 @@ describe('background playlist playback', () => {
     expect(api.getPlaylist).toHaveBeenCalledTimes(2);
     expect(getPlayerState().playlistError).toBeNull();
     expect(getPlayerState().loadingPlaylistId).toBeNull();
+  });
+
+  it('updates snapshot when setQuality is called', async () => {
+    const updated = createMockSnapshot({
+      sequence: '12',
+      targetQuality: 'lossless',
+      actualQuality: 'lossless',
+      actualBitrate: 999000,
+      format: 'flac',
+    });
+    vi.mocked(api.setQuality).mockResolvedValue(updated);
+    await playerActions.setQuality('lossless');
+    expect(api.setQuality).toHaveBeenCalledWith('lossless');
+    expect(getPlayerState().snapshot?.targetQuality).toBe('lossless');
+    expect(getPlayerState().snapshot?.actualQuality).toBe('lossless');
+    expect(getPlayerState().snapshot?.actualBitrate).toBe(999000);
+    expect(getPlayerState().snapshot?.format).toBe('flac');
   });
 });

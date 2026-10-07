@@ -3,7 +3,7 @@ pub mod persistence;
 use akanetease_backend::{
     account::{
         AccountService, LogoutReport, QrChallenge, QrProgress, QrStatus, SessionSnapshot,
-        UserPlaylists,
+        UserPlaylist, UserPlaylists,
     },
     api::NeteaseClient,
     audio::AudioEngine,
@@ -169,6 +169,45 @@ async fn daily_tracks(state: State<'_, Backend>) -> Result<Vec<Track>> {
     state.account.daily_tracks().await
 }
 #[tauri::command]
+async fn track_like(state: State<'_, Backend>, track_id: String, like: bool) -> Result<bool> {
+    state.account.track_like(&track_id, like).await
+}
+#[tauri::command]
+async fn playlist_create(
+    state: State<'_, Backend>,
+    name: String,
+    privacy: Option<u32>,
+) -> Result<UserPlaylist> {
+    state.account.playlist_create(&name, privacy).await
+}
+#[tauri::command]
+async fn playlist_delete(state: State<'_, Backend>, playlist_id: String) -> Result<()> {
+    state.account.playlist_delete(&playlist_id).await
+}
+#[tauri::command]
+async fn playlist_tracks_op(
+    state: State<'_, Backend>,
+    playlist_id: String,
+    track_ids: Vec<String>,
+    op: String,
+) -> Result<usize> {
+    state
+        .account
+        .playlist_tracks_op(&playlist_id, &track_ids, &op)
+        .await
+}
+#[tauri::command]
+async fn playlist_subscribe(
+    state: State<'_, Backend>,
+    playlist_id: String,
+    subscribe: bool,
+) -> Result<()> {
+    state
+        .account
+        .playlist_subscribe(&playlist_id, subscribe)
+        .await
+}
+#[tauri::command]
 fn player_snapshot(state: State<'_, Backend>) -> PlayerSnapshot {
     state.player.snapshot()
 }
@@ -268,6 +307,16 @@ async fn player_volume(state: State<'_, Backend>, volume: f64) -> Result<PlayerS
     state.player.command(PlayerCommand::Volume(volume)).await
 }
 #[tauri::command]
+async fn player_set_quality(
+    state: State<'_, Backend>,
+    quality: akanetease_backend::model::SoundQuality,
+) -> Result<PlayerSnapshot> {
+    state
+        .player
+        .command(PlayerCommand::SetQuality(quality))
+        .await
+}
+#[tauri::command]
 async fn player_repeat(state: State<'_, Backend>, repeat: Repeat) -> Result<PlayerSnapshot> {
     state.player.command(PlayerCommand::Repeat(repeat)).await
 }
@@ -343,6 +392,11 @@ pub fn commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         user_playlists,
         liked_tracks,
         daily_tracks,
+        track_like,
+        playlist_create,
+        playlist_delete,
+        playlist_tracks_op,
+        playlist_subscribe,
         player_snapshot,
         player_queue,
         player_replace,
@@ -357,6 +411,7 @@ pub fn commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         player_previous,
         player_seek,
         player_volume,
+        player_set_quality,
         player_repeat,
         player_shuffle
     ])
@@ -391,12 +446,13 @@ pub fn run() {
             );
             let music = NeteaseClient::configured(&config.proxy)?;
             let player = tauri::async_runtime::block_on(async {
-                Ok::<_, akanetease_backend::error::BackendError>(PlayerHandle::spawn(
+                Ok::<_, akanetease_backend::error::BackendError>(PlayerHandle::spawn_with_quality(
                     AudioEngine::configured(&config.proxy)?,
                     Arc::new(NeteaseResolver {
                         account: account.clone(),
                         anonymous: music.clone(),
                     }),
+                    config.default_quality,
                 ))
             })?;
             tauri::async_runtime::block_on(persistence.restore(&player));

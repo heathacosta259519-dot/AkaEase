@@ -211,9 +211,10 @@ async fn run() -> Result<()> {
         ),
         "stream" => print(
             client
-                .stream(
+                .stream_quality(
                     argument
                         .ok_or_else(|| BackendError::InvalidInput("missing track ID".into()))?,
+                    config.default_quality,
                 )
                 .await?,
         ),

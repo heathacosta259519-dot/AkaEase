@@ -21,6 +21,18 @@
     // Let initial session restore finish before sending playback commands.
     await delay(300);
     if ((await invoke('session_snapshot')).profile !== null) throw new Error('account isolation');
+    for (const [command, args] of [
+      ['track_like', {trackId:'7',like:true}],
+      ['playlist_create', {name:'Synthetic playlist'}],
+      ['playlist_delete', {playlistId:'1'}],
+      ['playlist_tracks_op', {playlistId:'1',trackIds:['7'],op:'add'}],
+      ['playlist_subscribe', {playlistId:'1',subscribe:true}],
+    ]) {
+      let error;
+      try { await invoke(command, args); } catch (result) { error = result; }
+      if (error?.code !== 'unauthorized') throw new Error(`${command} did not reach session validation: ${JSON.stringify(error)}`);
+      checks.push(`${command} requires login through real Tauri IPC`);
+    }
     for (const command of ['music_artist_detail', 'music_album_detail', 'music_artist_songs', 'music_artist_albums']) {
       let error;
       try { await invoke(command, {id:'0',offset:0,limit:20}); } catch (result) { error = result; }
@@ -36,6 +48,11 @@
     await delay(50);
     checkbox.click();
     await until('Settings change can be reverted', async () => (await invoke('config_get')).restoreQueue);
+    const qualityConfig = await invoke('config_get');
+    if (qualityConfig.defaultQuality !== 'exhigh') throw new Error('quality default');
+    await invoke('config_set', {config:{...qualityConfig,defaultQuality:'hires'}});
+    await until('Default quality persists through real Tauri IPC', async () => (await invoke('config_get')).defaultQuality === 'hires');
+    await invoke('config_set', {config:qualityConfig});
     textButton('发现音乐').click();
     await invoke('player_replace', {tracks:[track('1'),track('2')],selected:0,autoplay:false});
     await until('Player events update track metadata', () => document.querySelector('footer').textContent.includes('Synthetic 1'));
@@ -43,6 +60,19 @@
     await until('UI play controls real GStreamer', async () => (await state()).playback.state === 'playing' && button('暂停'));
     button('暂停').click();
     await until('UI pause controls real GStreamer', async () => (await state()).playback.state === 'paused');
+    const beforeQuality = await state();
+    await invoke('player_seek', {positionMs:1200,selectionId:beforeQuality.selectionId});
+    await invoke('player_set_quality', {quality:'lossless'});
+    await until('Quality switch reloads paused GStreamer at the saved position', async () => {
+      const s = await state();
+      return !s.resolving && s.targetQuality === 'lossless' && s.playback.state === 'paused' && s.playback.positionMs === 1200 && s.queueRevision === beforeQuality.queueRevision && s.selectionId !== beforeQuality.selectionId;
+    });
+    await until('Actual quality reports a playable downgrade', async () => {
+      const s = await state();
+      return s.actualQuality === 'standard' && s.actualBitrate === 128000 && s.format === 'wav';
+    });
+    await invoke('player_set_quality', {quality:'exhigh'});
+    await until('Quality switch can be reverted without autoplay', async () => !(await state()).resolving && (await state()).playback.state === 'paused');
     button('顺序播放').click();
     await until('Repeat UI and backend agree', async () => (await state()).repeat === 'all' && button('列表循环'));
     button('开启随机播放').click();

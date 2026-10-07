@@ -1,5 +1,5 @@
 import { createStore } from './createStore';
-import type { PlayerSnapshot, RepeatMode, Track } from '../types/backend';
+import type { PlayerSnapshot, RepeatMode, SoundQuality, Track } from '../types/backend';
 import * as api from '../services/api';
 
 interface PlayerState {
@@ -228,6 +228,15 @@ export const playerActions = {
       applySnapshot(snap);
     } catch (err) {
       console.error('setShuffle failed:', err);
+    }
+  },
+
+  async setQuality(quality: SoundQuality) {
+    try {
+      const snap = await api.setQuality(quality);
+      applySnapshot(snap);
+    } catch (err) {
+      console.error('setQuality failed:', err);
     }
   },
 

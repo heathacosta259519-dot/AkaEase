@@ -88,6 +88,7 @@ struct Reply {
     expect_cookie: Option<&'static str>,
     no_login_cookie: bool,
     hold: Option<(Arc<Notify>, Arc<Notify>)>,
+    expect_json: Option<Value>,
 }
 fn reply(path: &'static str, body: Value) -> Reply {
     Reply {
@@ -97,6 +98,7 @@ fn reply(path: &'static str, body: Value) -> Reply {
         expect_cookie: None,
         no_login_cookie: false,
         hold: None,
+        expect_json: None,
     }
 }
 fn key() -> Reply {
@@ -200,6 +202,16 @@ async fn server(replies: Vec<Reply>) -> Server {
                     .nth(1)
                     .unwrap();
                 assert_eq!(path.split('?').next().unwrap(), response.path);
+                if let Some(mut expected) = response.expect_json {
+                    assert!(text.starts_with("POST "));
+                    let body = text.split_once("\r\n\r\n").unwrap().1;
+                    expected
+                        .as_object_mut()
+                        .unwrap()
+                        .entry("csrf_token")
+                        .or_insert(json!(""));
+                    assert_eq!(crate::weapi::decode_test_request(body), expected);
+                }
                 if response.path.starts_with("/weapi/login/qrcode/") {
                     let body = text.split_once("\r\n\r\n").unwrap().1;
                     assert!(body.contains("params=") && body.contains("encSecKey="));
@@ -245,6 +257,350 @@ async fn login(service: &AccountService) -> QrProgress {
     let mut progress = service.poll_login(&qr.attempt_id).await.unwrap();
     progress.session = service.flush_credentials().await;
     progress
+}
+
+fn library_reply(path: &'static str, body: Value, parameters: Value) -> Reply {
+    let mut response = reply(path, body);
+    response.expect_cookie = Some("MUSIC_U=library");
+    response.expect_json = Some(parameters);
+    response
+}
+
+fn access_reply(id: u64, owner: u64, special_type: u64) -> Reply {
+    let mut response = reply(
+        "/api/v6/playlist/detail",
+        json!({"code":200,"playlist":{
+            "id":id,"creator":{"userId":owner},"specialType":special_type
+        }}),
+    );
+    response.expect_cookie = Some("MUSIC_U=library");
+    response
+}
+
+fn library_login() -> Vec<Reply> {
+    vec![
+        key(),
+        success("MUSIC_U=library; Path=/"),
+        profile(42, "MUSIC_U=library"),
+    ]
+}
+
+#[tokio::test]
+async fn library_writes_use_authenticated_weapi_and_return_typed_results() {
+    let big = 9007199254740993_u64;
+    let mut replies = library_login();
+    replies.extend([
+        library_reply("/weapi/radio/like", json!({"code":200}), json!({"alg":"itembased","trackId":big,"like":true,"time":3})),
+        library_reply("/weapi/radio/like", json!({"code":200}), json!({"alg":"itembased","trackId":big,"like":false,"time":3})),
+        library_reply("/weapi/playlist/create", json!({"code":200,"playlist":{
+            "id":big,"name":"测试歌单","coverImgUrl":null,"trackCount":0,"creator":{"userId":42},"specialType":0
+        }}), json!({"name":"测试歌单","privacy":10,"type":"NORMAL"})),
+        access_reply(big, 42, 0),
+        library_reply("/weapi/playlist/manipulate/tracks", json!({"code":200}), json!({"op":"add","pid":big,"trackIds":format!("[{big},7]")})),
+        access_reply(big, 42, 0),
+        library_reply("/weapi/playlist/manipulate/tracks", json!({"code":200}), json!({"op":"del","pid":big,"trackIds":"[7]"})),
+        access_reply(big, 43, 0),
+        library_reply("/weapi/playlist/subscribe", json!({"code":200}), json!({"id":big,"t":1})),
+        access_reply(big, 43, 0),
+        library_reply("/weapi/playlist/subscribe", json!({"code":200}), json!({"id":big,"t":2})),
+        access_reply(big, 42, 0),
+        library_reply("/weapi/playlist/remove", json!({"code":200}), json!({"ids":format!("[{big}]")})),
+    ]);
+    let server = server(replies).await;
+    let service =
+        AccountService::with_store(Arc::new(MemoryStore::default()), server.factory.clone());
+    login(&service).await;
+    assert!(service.track_like(&big.to_string(), true).await.unwrap());
+    assert!(!service.track_like(&big.to_string(), false).await.unwrap());
+    let created = service
+        .playlist_create("  测试歌单  ", Some(10))
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(created).unwrap(),
+        json!({
+            "id":big.to_string(),"title":"测试歌单","coverUrl":null,"trackCount":0,
+            "ownerId":"42","isCreator":true,"subscribed":false,"isLikedPlaylist":false
+        })
+    );
+    assert_eq!(
+        service
+            .playlist_tracks_op(
+                &big.to_string(),
+                &[big.to_string(), "7".into(), "0007".into()],
+                "add"
+            )
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        service
+            .playlist_tracks_op(&big.to_string(), &["7".into()], "del")
+            .await
+            .unwrap(),
+        1
+    );
+    service
+        .playlist_subscribe(&big.to_string(), true)
+        .await
+        .unwrap();
+    service
+        .playlist_subscribe(&big.to_string(), false)
+        .await
+        .unwrap();
+    service.playlist_delete(&big.to_string()).await.unwrap();
+    server.done();
+}
+
+#[tokio::test]
+async fn library_writes_preserve_dynamic_csrf_and_create_accepts_the_unicode_name_boundary() {
+    let mut creation = key();
+    creation.cookie = Some("__csrf=synthetic-session; Path=/");
+    let name = "测".repeat(40);
+    let mut write = library_reply(
+        "/weapi/radio/like",
+        json!({"code":200}),
+        json!({
+            "alg":"itembased","trackId":7,"like":true,"time":3,"csrf_token":"synthetic-session"
+        }),
+    );
+    write.expect_cookie = Some("__csrf=synthetic-session");
+    let mut create = library_reply(
+        "/weapi/playlist/create",
+        json!({"code":200,"playlist":{
+            "id":1,"name":name,"coverImgUrl":"https://images.invalid/cover","trackCount":0,"creator":{"userId":42}
+        }}),
+        json!({"name":name,"privacy":0,"type":"NORMAL","csrf_token":"synthetic-session"}),
+    );
+    create.expect_cookie = Some("__csrf=synthetic-session");
+    let server = server(vec![
+        creation,
+        success("MUSIC_U=library; Path=/"),
+        profile(42, "MUSIC_U=library"),
+        write,
+        create,
+    ])
+    .await;
+    let service =
+        AccountService::with_store(Arc::new(MemoryStore::default()), server.factory.clone());
+    login(&service).await;
+    assert!(service.track_like("7", true).await.unwrap());
+    let created = service.playlist_create(&name, None).await.unwrap();
+    assert_eq!(created.title, name);
+    assert_eq!(
+        created.cover_url.as_deref(),
+        Some("https://images.invalid/cover")
+    );
+    server.done();
+}
+
+#[tokio::test]
+async fn library_writes_require_login_and_validate_input_without_network() {
+    let server = server(library_login()).await;
+    let service =
+        AccountService::with_store(Arc::new(MemoryStore::default()), server.factory.clone());
+    assert!(matches!(
+        service.track_like("1", true).await,
+        Err(BackendError::Unauthorized)
+    ));
+    assert!(matches!(
+        service.playlist_create("name", None).await,
+        Err(BackendError::Unauthorized)
+    ));
+    assert!(matches!(
+        service.playlist_delete("1").await,
+        Err(BackendError::Unauthorized)
+    ));
+    assert!(matches!(
+        service.playlist_tracks_op("1", &["1".into()], "add").await,
+        Err(BackendError::Unauthorized)
+    ));
+    assert!(matches!(
+        service.playlist_subscribe("1", true).await,
+        Err(BackendError::Unauthorized)
+    ));
+    login(&service).await;
+    for id in ["", "0", "-1", "abc", "18446744073709551616"] {
+        assert!(matches!(
+            service.track_like(id, true).await,
+            Err(BackendError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            service.playlist_delete(id).await,
+            Err(BackendError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            service.playlist_subscribe(id, true).await,
+            Err(BackendError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            service.playlist_tracks_op(id, &["1".into()], "add").await,
+            Err(BackendError::InvalidInput(_))
+        ));
+    }
+    for name in ["".to_string(), " ".into(), "测".repeat(41), "a\nb".into()] {
+        assert!(matches!(
+            service.playlist_create(&name, None).await,
+            Err(BackendError::InvalidInput(_))
+        ));
+    }
+    assert!(matches!(
+        service.playlist_create("name", Some(1)).await,
+        Err(BackendError::InvalidInput(_))
+    ));
+    for (ids, op) in [
+        (vec![], "add"),
+        (vec!["1".into(); 101], "del"),
+        (vec!["0".into()], "add"),
+        (vec!["1".into()], "replace"),
+    ] {
+        assert!(matches!(
+            service.playlist_tracks_op("1", &ids, op).await,
+            Err(BackendError::InvalidInput(_))
+        ));
+    }
+    server.done();
+}
+
+#[tokio::test]
+async fn protected_or_foreign_playlists_never_reach_delete_and_track_write_endpoints() {
+    let mut replies = library_login();
+    replies.extend([
+        access_reply(1, 42, 5),
+        access_reply(1, 43, 0),
+        access_reply(1, 42, 1),
+        access_reply(1, 42, 5),
+        access_reply(1, 43, 0),
+        access_reply(1, 42, 0),
+    ]);
+    replies.push(reply(
+        "/api/v6/playlist/detail",
+        json!({"code":200,"playlist":{"id":1,"creator":{"userId":42}}}),
+    ));
+    replies.push(access_reply(2, 42, 0));
+    let server = server(replies).await;
+    let service =
+        AccountService::with_store(Arc::new(MemoryStore::default()), server.factory.clone());
+    login(&service).await;
+    for _ in 0..3 {
+        assert!(matches!(
+            service.playlist_delete("1").await,
+            Err(BackendError::InvalidInput(_))
+        ));
+    }
+    for _ in 0..2 {
+        assert!(matches!(
+            service.playlist_tracks_op("1", &["7".into()], "add").await,
+            Err(BackendError::InvalidInput(_))
+        ));
+    }
+    assert!(matches!(
+        service.playlist_subscribe("1", true).await,
+        Err(BackendError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        service.playlist_delete("1").await,
+        Err(BackendError::Protocol(_))
+    ));
+    assert!(matches!(
+        service.playlist_delete("1").await,
+        Err(BackendError::Protocol(_))
+    ));
+    assert!(service.snapshot().await.profile.is_some());
+    server.done();
+}
+
+#[tokio::test]
+async fn library_service_errors_do_not_report_success_and_only_expiry_clears_session() {
+    let mut replies = library_login();
+    replies.extend([
+        library_reply("/weapi/radio/like",json!({"code":500}),json!({"alg":"itembased","trackId":7,"like":true,"time":3})),
+        library_reply("/weapi/playlist/create",json!({"code":200,"playlist":{"id":1,"name":"bad","trackCount":0,"creator":{"userId":99}}}),json!({"name":"name","privacy":0,"type":"NORMAL"})),
+        library_reply("/weapi/radio/like",json!({"code":301}),json!({"alg":"itembased","trackId":7,"like":true,"time":3})),
+    ]);
+    let server = server(replies).await;
+    let service =
+        AccountService::with_store(Arc::new(MemoryStore::default()), server.factory.clone());
+    login(&service).await;
+    assert!(matches!(
+        service.track_like("7", true).await,
+        Err(BackendError::Service(500))
+    ));
+    assert!(service.snapshot().await.profile.is_some());
+    assert!(matches!(
+        service.playlist_create("name", None).await,
+        Err(BackendError::Protocol(_))
+    ));
+    assert!(service.snapshot().await.profile.is_some());
+    assert!(matches!(
+        service.track_like("7", true).await,
+        Err(BackendError::Unauthorized)
+    ));
+    assert!(service.snapshot().await.profile.is_none());
+    server.done();
+}
+
+#[tokio::test]
+async fn logout_during_permission_check_prevents_playlist_deletion() {
+    let (entered, release) = store_hold();
+    let mut access = access_reply(1, 42, 0);
+    access.hold = Some((entered.clone(), release.clone()));
+    let mut replies = library_login();
+    replies.extend([access, reply("/api/logout", json!({"code":200}))]);
+    let server = server(replies).await;
+    let service = Arc::new(AccountService::with_store(
+        Arc::new(MemoryStore::default()),
+        server.factory.clone(),
+    ));
+    login(&service).await;
+    let worker = service.clone();
+    let deletion = tokio::spawn(async move { worker.playlist_delete("1").await });
+    entered.notified().await;
+    responsive(service.logout()).await;
+    release.notify_one();
+    assert!(matches!(
+        deletion.await.unwrap(),
+        Err(BackendError::StaleOperation)
+    ));
+    server.done();
+}
+
+#[tokio::test]
+async fn writes_are_serialized_and_queued_operations_cannot_use_an_obsolete_account() {
+    let (entered, release) = store_hold();
+    let mut like = library_reply(
+        "/weapi/radio/like",
+        json!({"code":200}),
+        json!({"alg":"itembased","trackId":7,"like":true,"time":3}),
+    );
+    like.hold = Some((entered.clone(), release.clone()));
+    let mut replies = library_login();
+    replies.extend([like, reply("/api/logout", json!({"code":200}))]);
+    let server = server(replies).await;
+    let service = Arc::new(AccountService::with_store(
+        Arc::new(MemoryStore::default()),
+        server.factory.clone(),
+    ));
+    login(&service).await;
+    let worker = service.clone();
+    let first = tokio::spawn(async move { worker.track_like("7", true).await });
+    entered.notified().await;
+    let second = service.track_like("7", false);
+    tokio::pin!(second);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut second)
+            .await
+            .is_err()
+    );
+    responsive(service.logout()).await;
+    release.notify_one();
+    assert!(matches!(
+        first.await.unwrap(),
+        Err(BackendError::StaleOperation)
+    ));
+    assert!(matches!(second.await, Err(BackendError::StaleOperation)));
+    server.done();
 }
 
 #[tokio::test]
@@ -538,10 +894,11 @@ async fn login_personal_content_restore_and_logout_keep_cookies_private() {
     );
     daily.expect_cookie = Some("MUSIC_U=alpha");
     let mut stream = reply(
-        "/api/song/enhance/player/url",
+        "/weapi/song/enhance/player/url/v1",
         json!({"code":200,"data":[{"id":7,"code":200,"url":"https://audio.invalid/fixture","br":128000}]}),
     );
     stream.expect_cookie = Some("MUSIC_U=alpha");
+    stream.expect_json = Some(json!({"ids":"[7]","level":"hires","encodeType":"flac"}));
     let server = server(vec![
         key(),
         success("MUSIC_U=alpha; Path=/; HttpOnly"),
@@ -577,7 +934,12 @@ async fn login_personal_content_restore_and_logout_keep_cookies_private() {
     );
     assert_eq!(service.liked_tracks().await.unwrap()[0], "9007199254740993");
     assert_eq!(service.daily_tracks().await.unwrap()[0].id, "7");
-    assert_eq!(service.stream("7").await.unwrap().track_id, "7");
+    let source = service
+        .stream_quality("7", crate::model::SoundQuality::Hires)
+        .await
+        .unwrap();
+    assert_eq!(source.track_id, "7");
+    assert_eq!(source.quality, Some(crate::model::SoundQuality::Standard));
     drop(service);
     let restored = AccountService::with_store(store.clone(), server.factory.clone());
     assert_eq!(restored.restore().await.unwrap().profile.unwrap().id, "42");
@@ -588,6 +950,42 @@ async fn login_personal_content_restore_and_logout_keep_cookies_private() {
         restored.daily_tracks().await,
         Err(BackendError::Unauthorized)
     ));
+    server.done();
+}
+
+#[tokio::test]
+async fn authenticated_quality_requests_send_all_levels_with_session_and_csrf() {
+    use crate::model::SoundQuality;
+    let qualities = [
+        SoundQuality::Standard,
+        SoundQuality::Higher,
+        SoundQuality::Exhigh,
+        SoundQuality::Lossless,
+        SoundQuality::Hires,
+    ];
+    let mut replies = vec![
+        key(),
+        success("MUSIC_U=alpha; Path=/; HttpOnly"),
+        profile(42, "MUSIC_U=alpha"),
+    ];
+    for quality in qualities {
+        let mut response = reply(
+            "/weapi/song/enhance/player/url/v1",
+            json!({"code":200,"data":[{"id":7,"code":200,"url":"https://audio.invalid/synthetic","br":320000,"type":"mp3"}]}),
+        );
+        response.expect_cookie = Some("MUSIC_U=alpha");
+        response.expect_json =
+            Some(json!({"ids":"[7]","level":quality.level(),"encodeType":"flac"}));
+        replies.push(response);
+    }
+    let server = server(replies).await;
+    let service =
+        AccountService::with_store(Arc::new(MemoryStore::default()), server.factory.clone());
+    login(&service).await;
+    for quality in qualities {
+        let source = service.stream_quality("7", quality).await.unwrap();
+        assert_eq!(source.quality, Some(SoundQuality::Exhigh));
+    }
     server.done();
 }
 

@@ -1,10 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Music2, RefreshCw, AlertCircle, Info, Sparkles, Clock, Loader2 } from 'lucide-react';
-import { useViewStore } from '../stores/viewStore';
+import { 
+  Play, 
+  Music2, 
+  RefreshCw, 
+  AlertCircle, 
+  Info, 
+  Sparkles, 
+  Clock, 
+  Loader2,
+  Bookmark,
+  BookmarkCheck,
+  Trash2
+} from 'lucide-react';
+import { useViewStore, viewActions } from '../stores/viewStore';
+import { useSessionStore, sessionActions } from '../stores/sessionStore';
 import { getPlaylist } from '../services/api';
-import type { PlaylistPage } from '../types/backend';
+import type { PlaylistPage, Track } from '../types/backend';
 import { SongTable } from '../components/music/SongTable';
 import { playerActions, usePlayerStore } from '../stores/playerStore';
+import { ConfirmModal } from '../components/common/ConfirmModal';
 
 export function PlaylistView() {
   const activePlaylistId = useViewStore((s) => s.activePlaylistId);
@@ -15,6 +29,16 @@ export function PlaylistView() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+
+  const userPlaylists = useSessionStore((s) => s.userPlaylists);
+  const currentPlaylistMeta = userPlaylists?.items.find((p) => p.id === activePlaylistId);
+  const isCreator = currentPlaylistMeta?.isCreator ?? false;
+  const isLikedPlaylist = currentPlaylistMeta?.isLikedPlaylist ?? false;
+  const isSubscribed = currentPlaylistMeta?.subscribed ?? false;
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
 
   const requestGenRef = useRef(0);
   const loadingMoreRef = useRef(false);
@@ -127,6 +151,52 @@ export function PlaylistView() {
     }
   };
 
+  const handleToggleSubscribe = async () => {
+    if (!activePlaylistId || subscribing) return;
+    setSubscribing(true);
+    try {
+      await sessionActions.subscribePlaylist(activePlaylistId, !isSubscribed);
+    } catch (err) {
+      console.error('Failed to toggle playlist subscribe:', err);
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
+  const handleDeletePlaylist = async () => {
+    if (!activePlaylistId || deleteLoading) return;
+    setDeleteLoading(true);
+    try {
+      await sessionActions.deletePlaylist(activePlaylistId);
+      setIsDeleteModalOpen(false);
+      viewActions.navigate('discover');
+    } catch (err) {
+      console.error('Failed to delete playlist:', err);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleRemoveTrack = async (track: Track) => {
+    if (!activePlaylistId) return;
+    try {
+      await sessionActions.removeTracksFromPlaylist(activePlaylistId, [track.id]);
+      setPlaylist((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tracks: {
+            ...prev.tracks,
+            items: prev.tracks.items.filter((t) => t.id !== track.id),
+            total: Math.max(0, prev.tracks.total - 1),
+          },
+        };
+      });
+    } catch (err) {
+      console.error('Failed to remove track from playlist:', err);
+    }
+  };
+
   if (!activePlaylistId) {
     return (
       <div className="flex h-64 items-center justify-center text-xs text-neutral-500">
@@ -229,6 +299,41 @@ export function PlaylistView() {
                   <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-rose-500' : ''}`} />
                   <span>刷新</span>
                 </button>
+
+                {/* Subscribe / Unsubscribe for external playlists */}
+                {!isCreator && !isLikedPlaylist && (
+                  <button
+                    onClick={handleToggleSubscribe}
+                    disabled={subscribing}
+                    title={isSubscribed ? '取消收藏歌单' : '收藏歌单'}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm active:scale-95 transition-all cursor-pointer press-feedback-sm ${
+                      isSubscribed
+                        ? 'border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                        : 'border-neutral-800 bg-neutral-900/90 text-neutral-300 hover:text-white hover:bg-neutral-800'
+                    }`}
+                  >
+                    {subscribing ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
+                    ) : isSubscribed ? (
+                      <BookmarkCheck className="h-4 w-4 text-rose-500" />
+                    ) : (
+                      <Bookmark className="h-4 w-4" />
+                    )}
+                    <span>{isSubscribed ? '已收藏' : '收藏歌单'}</span>
+                  </button>
+                )}
+
+                {/* Delete button for user's own playlists */}
+                {isCreator && !isLikedPlaylist && (
+                  <button
+                    onClick={() => setIsDeleteModalOpen(true)}
+                    title="删除自建歌单"
+                    className="inline-flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/20 active:scale-95 transition-all cursor-pointer press-feedback-sm"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>删除歌单</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -257,6 +362,8 @@ export function PlaylistView() {
           <SongTable
             tracks={playlist.tracks.items}
             unavailableIds={playlist.unavailableIds}
+            playlistId={playlist.id}
+            onRemoveFromPlaylist={isCreator && !isLikedPlaylist ? handleRemoveTrack : undefined}
             onPlayTrack={(track) => { playerActions.replacePlaylistQueue(playlist.id, playlist.tracks.items, track.id); }}
           />
           {queueLoading && <p role="status" className="text-xs text-neutral-400">正在后台补齐歌单...</p>}
@@ -305,6 +412,18 @@ export function PlaylistView() {
           </div>
         </div>
       ) : null}
+
+      {/* Delete Playlist Confirmation Modal */}
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        title="删除歌单"
+        message={`确定要删除歌单「${playlist?.title ?? ''}」吗？删除后歌单将被永久移除。`}
+        confirmText="确认删除"
+        danger
+        loading={deleteLoading}
+        onConfirm={handleDeletePlaylist}
+        onClose={() => setIsDeleteModalOpen(false)}
+      />
     </div>
   );
 }

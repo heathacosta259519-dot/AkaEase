@@ -70,15 +70,19 @@ cargo build --locked --manifest-path desktop/Cargo.toml
 
 前端 Agent 实现并启动 `http://localhost:5173` 后，可在 backend 运行 `cargo run --locked --manifest-path desktop/Cargo.toml` 启动宿主；前端现已交付真实界面及 dist，基础 WebView 联调已通过。发布构建使用 `cargo build --locked --release --manifest-path desktop/Cargo.toml --features custom-protocol`，需要前端先生成 frontend/dist。不会自动代建前端或生成占位页面；Linux tar 发行脚本见 packaging/README.md。
 
-前端接入使用根目录 BACKEND_API v1.2：先订阅 player-state，再获取快照；以 sequence 去重，以 queueRevision 和 selectionId 防止过期编辑。账号恢复由前端显式调用 session_restore。登录成功不等待钥匙串保存，后续 session-state 更新存储状态；正常退出会等待凭据操作收尾。歌手热门单曲通过 music_artist_songs 获取最多 50 首；专辑列表通过 music_artist_albums 分页获取 Page<AlbumSummary>，具体字段与分页语义见根契约。基础真实 WebView 联调已通过；真实账号音源、钥匙串及硬件媒体键仍需验收，不将 MockRuntime 和合成音频测试视为完整产品验收。
+前端接入使用根目录 BACKEND_API v1.4：先订阅 player-state，再获取快照；以 sequence 去重，以 queueRevision 和 selectionId 防止过期编辑。账号恢复由前端显式调用 session_restore。登录成功不等待钥匙串保存，后续 session-state 更新存储状态；正常退出会等待凭据操作收尾。歌手热门单曲通过 music_artist_songs 获取最多 50 首；专辑列表通过 music_artist_albums 分页获取 Page<AlbumSummary>，具体字段与分页语义见根契约。基础真实 WebView 联调已通过；真实账号音源、钥匙串及硬件媒体键仍需验收，不将 MockRuntime 和合成音频测试视为完整产品验收。
+
+音质：SoundQuality 支持 standard/higher/exhigh/lossless/hires，默认 exhigh。`player_set_quality({quality})` 即时更新目标，播放或暂停时异步解析并重载，在新流预加载后恢复原位置和播放意图；新版 WeAPI URL v1 返回低档流时正常播放。PlayerSnapshot 顶层返回 targetQuality、actualQuality、actualBitrate（bit/s）、format；实际信息未知/无流时为 null。换流解析失败保留旧流，加载或定位失败停止并报告错误，不擅自跳歌；单管道重载可能短暂中断。持久化默认档位使用 config_set 的 defaultQuality，重启后生效，旧配置省略该字段兼容 exhigh。当前只有歌词缓存，没有音频磁盘缓存，不存在不同音质命中同一音频文件的路径。
 
 扫码诊断：桌面 `backend.jsonl` 的 auth 事件包含 phase、outcome、elapsedMs、成功轮询状态 200/800..803 的 qrCode，以及失败时受范围限制的 serviceCode。可区分 create/poll/cookie/profile/credential_clear/credential_save/restore 阶段；不记录用户身份、二维码 key/URL、Cookie 或原始错误消息。配置路径可通过 `aka-backend paths` 查询，日志位于 stateDir。
 
 ## M4 独立后端能力
 
+曲库写入 IPC 已提供 `track_like`、`playlist_create`、`playlist_delete`、`playlist_tracks_op`、`playlist_subscribe`，参数与错误语义见根目录 BACKEND_API v1.3。全部要求当前登录会话；写入串行且不自动重试。删除/增删曲目只允许经过服务端身份与类型检查的普通自建歌单，系统喜欢歌单使用 track_like 管理。新建直接返回 UserPlaylist；歌曲批量最多 100 项，返回成功请求的去重 ID 数量，不是实际变更数量。超时、网络失败或账号切换时可能已在远端执行，先刷新状态再决定后续操作。当前验证使用合成账号与本地服务，真实账号写入仍需用户验收。
+
 歌单播放先通过 `player_replace` 播放已显示曲目，后台分页加载时通过 `player_expand({tracks,revision})` 扩充队列，保留当前歌曲、音源和进度，不重新解析或打断暂停。每次更新使用最新返回的 queueRevision；用户替换/删除队列时，旧更新返回 stale_operation。单队列仍限制 10000 首，未返回元数据的歌曲无法入队，契约见 BACKEND_API v1.2。
 
-应用配置位于 `${XDG_CONFIG_HOME:-~/.config}/akanetease/config.json`，播放状态和单实例锁位于 `${XDG_STATE_HOME:-~/.local/state}/akanetease`，公开歌词缓存和容量限制位于 `${XDG_CACHE_HOME:-~/.cache}/akanetease`。配置包含 `proxy`（`system`、`direct` 或不含凭据的 HTTP origin）、`cacheLimitBytes` 和 `restoreQueue`。`config_set` 写入后需重启宿主才应用新代理和缓存实例。
+应用配置位于 `${XDG_CONFIG_HOME:-~/.config}/akanetease/config.json`，播放状态和单实例锁位于 `${XDG_STATE_HOME:-~/.local/state}/akanetease`，公开歌词缓存和容量限制位于 `${XDG_CACHE_HOME:-~/.cache}/akanetease`。配置包含 `proxy`（`system`、`direct` 或不含凭据的 HTTP origin）、`cacheLimitBytes`、`restoreQueue` 和 `defaultQuality`。`config_set` 写入后需重启宿主才应用新代理、缓存实例和默认音质。
 
 后端启动会尝试恢复上次队列，但保持停止，不会在启动时自动请求短期音源。退出和定时检查会原子保存状态；损坏状态会保留现场并进入 degraded 状态，避免覆盖用户数据。公开歌词按歌曲 ID 缓存 7 天并受容量限制，缓存清理不会触碰其他应用文件。
 
@@ -97,7 +101,7 @@ python scripts/package_linux.py --check
 默认配置（无配置文件时只读取此默认值，不自动写入）：
 
 ```json
-{"version":1,"cacheLimitBytes":33554432,"proxy":{"mode":"system"},"restoreQueue":true}
+{"version":1,"cacheLimitBytes":33554432,"proxy":{"mode":"system"},"restoreQueue":true,"defaultQuality":"exhigh"}
 ```
 
 可选 `proxy:{"mode":"direct"}` 或 `proxy:{"mode":"http","url":"http://127.0.0.1:7890"}`。暂不支持代理认证、SOCKS 或前端封面请求代理；system 模式由各网络库读取自己的环境配置。缓存默认 32 MiB，范围 0..1 GiB，0 禁用；每条歌词最多 2 MiB，按最旧写入时间淘汰。CLI cache-stats/cache-clear 会取得宿主同一把锁，请先退出桌面进程再使用；在宿主内调用 IPC cache_* 可即时操作。

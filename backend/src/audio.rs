@@ -40,6 +40,7 @@ pub struct AudioEngine {
     loaded: bool,
     wants_play: bool,
     buffering: bool,
+    pending_seek: Option<u64>,
 }
 
 impl AudioEngine {
@@ -114,6 +115,7 @@ impl AudioEngine {
             loaded: false,
             wants_play: false,
             buffering: false,
+            pending_seek: None,
         })
     }
 
@@ -161,6 +163,7 @@ impl AudioEngine {
         self.loaded = false;
         self.wants_play = false;
         self.buffering = false;
+        self.pending_seek = None;
         self.bus.set_flushing(true);
         self.bus.set_flushing(false);
         Ok(())
@@ -193,6 +196,8 @@ impl AudioEngine {
                 gst::ClockTime::from_mseconds(position_ms),
             )
             .map_err(|_| failure("source does not support seek"))?;
+        // FLUSH seeks complete asynchronously; preserve the accepted position meanwhile.
+        self.pending_seek = Some(position_ms);
         Ok(())
     }
     pub fn snapshot(&self) -> PlaybackSnapshot {
@@ -204,11 +209,12 @@ impl AudioEngine {
         };
         PlaybackSnapshot {
             state,
-            position_ms: self
-                .pipeline
-                .query_position::<gst::ClockTime>()
-                .map(|t| t.mseconds())
-                .unwrap_or(0),
+            position_ms: self.pending_seek.unwrap_or_else(|| {
+                self.pipeline
+                    .query_position::<gst::ClockTime>()
+                    .map(|t| t.mseconds())
+                    .unwrap_or(0)
+            }),
             duration_ms: self
                 .pipeline
                 .query_duration::<gst::ClockTime>()
@@ -221,6 +227,7 @@ impl AudioEngine {
         let mut events = Vec::new();
         while let Some(message) = self.bus.pop() {
             match message.view() {
+                gst::MessageView::AsyncDone(_) => self.pending_seek = None,
                 gst::MessageView::Eos(_) => {
                     self.stop()?;
                     events.push(AudioEvent::Ended);

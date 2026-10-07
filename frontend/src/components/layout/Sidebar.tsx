@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { 
   Compass, 
   Calendar, 
@@ -7,11 +8,16 @@ import {
   LogOut, 
   FolderLock, 
   ListMusic,
-  Radio
+  Radio,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { useSessionStore, sessionActions } from '../../stores/sessionStore';
 import { useViewStore, viewActions } from '../../stores/viewStore';
 import { BrandLogo } from '../common/BrandLogo';
+import { CreatePlaylistModal } from '../common/CreatePlaylistModal';
+import { ConfirmModal } from '../common/ConfirmModal';
+import type { UserPlaylist } from '../../types/backend';
 
 export function Sidebar() {
   const session = useSessionStore((s) => s.session);
@@ -20,7 +26,27 @@ export function Sidebar() {
   const activePlaylistId = useViewStore((s) => s.activePlaylistId);
   const backendStatus = useViewStore((s) => s.backendStatus);
 
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [deletingPlaylist, setDeletingPlaylist] = useState<UserPlaylist | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const profile = session?.profile;
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingPlaylist) return;
+    setDeleteLoading(true);
+    try {
+      await sessionActions.deletePlaylist(deletingPlaylist.id);
+      if (activePlaylistId === deletingPlaylist.id) {
+        viewActions.navigate('discover');
+      }
+      setDeletingPlaylist(null);
+    } catch (err) {
+      console.error('Failed to delete playlist:', err);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
   const isSecure = session?.persistence === 'secure';
 
   const likedPlaylistId =
@@ -124,25 +150,43 @@ export function Sidebar() {
           <>
             {/* Created Playlists */}
             <div className="space-y-1.5">
-              <div className="px-3.5 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
-                创建的歌单 ({createdPlaylists.length})
+              <div className="flex items-center justify-between px-3.5 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
+                <span>创建的歌单 ({createdPlaylists.length})</span>
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  title="新建歌单"
+                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
               </div>
               <div className="space-y-0.5">
                 {createdPlaylists.map((pl) => {
                   const isActive = currentView === 'playlist' && activePlaylistId === pl.id;
                   return (
-                    <button
-                      key={pl.id}
-                      onClick={() => viewActions.openPlaylist(pl.id)}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-3.5 py-2 text-[13px] text-left transition-colors truncate press-feedback-sm ${
-                        isActive
-                          ? 'bg-neutral-800 text-rose-400 font-semibold'
-                          : 'text-neutral-300 hover:bg-neutral-900 hover:text-white'
-                      }`}
-                    >
-                      <ListMusic className="h-4 w-4 shrink-0 text-neutral-500" />
-                      <span className="truncate">{pl.title}</span>
-                    </button>
+                    <div key={pl.id} className="group relative flex items-center">
+                      <button
+                        onClick={() => viewActions.openPlaylist(pl.id)}
+                        className={`flex w-full items-center gap-2.5 rounded-lg px-3.5 py-2 pr-8 text-[13px] text-left transition-colors truncate press-feedback-sm ${
+                          isActive
+                            ? 'bg-neutral-800 text-rose-400 font-semibold'
+                            : 'text-neutral-300 hover:bg-neutral-900 hover:text-white'
+                        }`}
+                      >
+                        <ListMusic className="h-4 w-4 shrink-0 text-neutral-500" />
+                        <span className="truncate">{pl.title}</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingPlaylist(pl);
+                        }}
+                        title="删除歌单"
+                        className="absolute right-2 opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -242,6 +286,22 @@ export function Sidebar() {
           </button>
         </div>
       </div>
+
+      <CreatePlaylistModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+      />
+
+      <ConfirmModal
+        isOpen={deletingPlaylist !== null}
+        title="删除歌单"
+        message={`确定要删除歌单「${deletingPlaylist?.title ?? ''}」吗？删除后不可恢复。`}
+        confirmText="删除"
+        danger
+        loading={deleteLoading}
+        onConfirm={handleDeleteConfirm}
+        onClose={() => setDeletingPlaylist(null)}
+      />
     </aside>
   );
 }

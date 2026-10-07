@@ -426,12 +426,16 @@ impl NeteaseClient {
     }
 
     pub async fn stream(&self, id: &str) -> Result<StreamSource> {
+        self.stream_quality(id, SoundQuality::default()).await
+    }
+
+    pub async fn stream_quality(&self, id: &str, quality: SoundQuality) -> Result<StreamSource> {
         let id = validate_id(id)?;
         let value = self
-            .request(
-                self.http
-                    .get(self.endpoint("api/song/enhance/player/url"))
-                    .query(&[("ids", json!([id]).to_string()), ("br", "320000".into())]),
+            .request_weapi_codes(
+                "weapi/song/enhance/player/url/v1",
+                json!({"ids":json!([id]).to_string(),"level":quality.level(),"encodeType":"flac"}),
+                &[200],
             )
             .await?;
         #[derive(Deserialize)]
@@ -440,7 +444,11 @@ impl NeteaseClient {
             id: u64,
             code: i64,
             url: Option<String>,
+            #[serde(default)]
             br: u32,
+            level: Option<String>,
+            #[serde(rename = "type")]
+            format: Option<String>,
             expi: Option<u64>,
             free_trial_info: Option<Value>,
         }
@@ -460,10 +468,16 @@ impl NeteaseClient {
         if !matches!(parsed.scheme(), "https" | "http") || parsed.host_str().is_none() {
             return Err(protocol("invalid stream URL scheme"));
         }
+        let format = source.format.map(|f| f.to_ascii_lowercase());
+        let level = source
+            .level
+            .and_then(|l| serde_json::from_value(Value::String(l)).ok());
         Ok(StreamSource {
             track_id: id.to_string(),
             url,
             bitrate: source.br,
+            quality: SoundQuality::from_source(source.br, format.as_deref(), level),
+            format,
             expires_in_seconds: source.expi,
             is_preview: source.free_trial_info.is_some(),
         })
@@ -613,6 +627,35 @@ mod tests {
     }
     fn song(id: u64) -> Value {
         json!({"id":id,"name":"自建歌曲","ar":[{"id":7,"name":"Test artist"}],"al":{"id":8,"name":"Test album"},"dt":4567})
+    }
+    #[tokio::test]
+    async fn stream_quality_reports_returned_metadata_and_accepts_downgrades() {
+        let cases = [
+            (128000, "mp3", "lossless", Some(SoundQuality::Standard)),
+            (192000, "mp3", "higher", Some(SoundQuality::Higher)),
+            (320000, "mp3", "hires", Some(SoundQuality::Exhigh)),
+            (999000, "FLAC", "lossless", Some(SoundQuality::Lossless)),
+            (2304000, "flac", "hires", Some(SoundQuality::Hires)),
+            (0, "flac", "unexpected", Some(SoundQuality::Lossless)),
+            (0, "unknown", "unexpected", None),
+        ];
+        let (client, task) = mock(cases.iter().map(|(br, format, level, _)| {
+            ("POST /weapi/song/enhance/player/url/v1?", json!({"code":200,"data":[{"id":1,"code":200,"url":"https://audio.invalid/synthetic","br":br,"type":format,"level":level,"expi":600,"freeTrialInfo":{"start":0,"end":20}}]}).to_string())
+        }).collect()).await;
+        for (br, format, _, expected) in cases {
+            let source = client
+                .stream_quality("1", SoundQuality::Hires)
+                .await
+                .unwrap();
+            assert_eq!(source.bitrate, br);
+            assert_eq!(source.quality, expected);
+            assert_eq!(
+                source.format.as_deref(),
+                Some(format.to_ascii_lowercase().as_str())
+            );
+            assert!(source.is_preview);
+        }
+        task.await.unwrap();
     }
     #[tokio::test]
     async fn missing_album_cover_falls_back_across_details_lists_and_tracks() {
@@ -780,7 +823,7 @@ mod tests {
                 json!({"code":301,"message":"secret-value"}).to_string(),
             ),
             (
-                "GET /api/song/enhance/player/url?",
+                "POST /weapi/song/enhance/player/url/v1?",
                 json!({"code":200,"data":[{"id":1,"code":404,"url":null,"br":0}]}).to_string(),
             ),
             ("GET /api/song/lyric?", "<html>secret-value</html>".into()),

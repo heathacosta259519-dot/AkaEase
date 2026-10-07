@@ -89,6 +89,35 @@ fn registered_ipc_changes_actor_and_publishes_versioned_events() {
         .unwrap();
     assert!(invoke(&other, "player_snapshot", json!({})).is_err());
     assert!(invoke_from(&window, "player_snapshot", json!({}), "https://example.com").is_err());
+    for (command, body) in [
+        ("track_like", json!({"trackId":"7","like":true})),
+        ("playlist_create", json!({"name":"Synthetic playlist"})),
+        ("playlist_delete", json!({"playlistId":"1"})),
+        (
+            "playlist_tracks_op",
+            json!({"playlistId":"1","trackIds":["7"],"op":"add"}),
+        ),
+        (
+            "playlist_subscribe",
+            json!({"playlistId":"1","subscribe":true}),
+        ),
+    ] {
+        assert_eq!(
+            invoke(&window, command, body.clone()).unwrap_err()["code"],
+            "unauthorized",
+            "{command} must reach the account service"
+        );
+        assert!(
+            invoke(&other, command, body.clone())
+                .unwrap_err()
+                .is_string()
+        );
+        assert!(
+            invoke_from(&window, command, body, "https://example.com")
+                .unwrap_err()
+                .is_string()
+        );
+    }
     for command in [
         "music_artist_detail",
         "music_album_detail",
@@ -220,11 +249,43 @@ fn registered_ipc_changes_actor_and_publishes_versioned_events() {
         "ready"
     );
     let mut config = invoke(&window, "config_get", json!({})).unwrap();
+    assert_eq!(config["defaultQuality"], "exhigh");
     config["proxy"] = json!({"mode":"direct"});
+    config["defaultQuality"] = json!("hires");
     invoke(&window, "config_set", json!({"config":config})).unwrap();
     assert_eq!(
         invoke(&window, "config_get", json!({})).unwrap()["proxy"]["mode"],
         "direct"
+    );
+    assert_eq!(
+        invoke(&window, "config_get", json!({})).unwrap()["defaultQuality"],
+        "hires"
+    );
+    assert_eq!(
+        player.snapshot().target_quality,
+        akanetease_backend::model::SoundQuality::Exhigh
+    );
+    let quality = invoke(&window, "player_set_quality", json!({"quality":"lossless"})).unwrap();
+    assert_eq!(quality["targetQuality"], "lossless");
+    assert_eq!(quality["actualQuality"], Value::Null);
+    assert_eq!(quality["actualBitrate"], Value::Null);
+    assert_eq!(quality["format"], Value::Null);
+    assert!(!quality["resolving"].as_bool().unwrap());
+    assert!(invoke(&window, "player_set_quality", json!({"quality":"bad"})).is_err());
+    assert!(
+        invoke(&other, "player_set_quality", json!({"quality":"hires"}))
+            .unwrap_err()
+            .is_string()
+    );
+    assert!(
+        invoke_from(
+            &window,
+            "player_set_quality",
+            json!({"quality":"hires"}),
+            "https://example.com"
+        )
+        .unwrap_err()
+        .is_string()
     );
     assert_eq!(
         invoke(&window, "cache_stats", json!({})).unwrap()["entries"],

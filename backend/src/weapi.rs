@@ -1,4 +1,4 @@
-//! Minimal WeAPI request encoding for the login endpoints.
+//! Minimal WeAPI request encoding for account and music endpoints.
 //!
 //! The browser protocol wraps JSON with two AES-CBC passes and RSA encrypts
 //! the per-request key. This implementation owns the encoding and exposes only
@@ -27,7 +27,39 @@ pub(crate) fn encode(value: &Value) -> Result<Vec<(String, String)>> {
         .iter()
         .map(|byte| BASE62[(*byte % 62) as usize])
         .collect();
-    encode_with_key(value, &key)
+    let fields = encode_with_key(value, &key)?;
+    #[cfg(test)]
+    TEST_REQUEST_KEYS
+        .lock()
+        .unwrap()
+        .insert(fields[1].1.clone(), key);
+    Ok(fields)
+}
+
+// Mock servers can inspect real encrypted requests without fixing production randomness.
+#[cfg(test)]
+static TEST_REQUEST_KEYS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+#[cfg(test)]
+pub(crate) fn decode_test_request(body: &str) -> Value {
+    use openssl::symm::decrypt;
+    let url = reqwest::Url::parse(&format!("http://127.0.0.1/?{body}")).unwrap();
+    let fields = url
+        .query_pairs()
+        .into_owned()
+        .collect::<std::collections::HashMap<_, _>>();
+    let key = TEST_REQUEST_KEYS
+        .lock()
+        .unwrap()
+        .remove(&fields["encSecKey"])
+        .unwrap();
+    let outer = STANDARD.decode(&fields["params"]).unwrap();
+    let inner = decrypt(Cipher::aes_128_cbc(), &key, Some(IV), &outer).unwrap();
+    let inner = STANDARD.decode(inner).unwrap();
+    let plain = decrypt(Cipher::aes_128_cbc(), PRESET_KEY, Some(IV), &inner).unwrap();
+    serde_json::from_slice(&plain).unwrap()
 }
 
 fn encode_with_key(value: &Value, key: &[u8]) -> Result<Vec<(String, String)>> {

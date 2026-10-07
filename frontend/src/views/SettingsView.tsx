@@ -16,7 +16,8 @@ import {
   getCacheStats, 
   clearCache 
 } from '../services/api';
-import type { BackendStatus, AppConfig, CacheStats } from '../types/backend';
+import { playerActions } from '../stores/playerStore';
+import type { BackendStatus, AppConfig, CacheStats, SoundQuality } from '../types/backend';
 import { formatBytes } from '../utils/format';
 import { BrandLogo } from '../components/common/BrandLogo';
 
@@ -246,10 +247,37 @@ export function SettingsView() {
       </section>
 
       {/* Playback Settings */}
-      <section className="rounded-xl border border-neutral-800/80 bg-neutral-900/50 p-5 space-y-4">
+      <section className="rounded-xl border border-neutral-800/80 bg-neutral-900/50 p-5 space-y-5">
         <div className="flex items-center gap-2 text-sm font-semibold text-neutral-200">
           <Sliders className="h-4 w-4 text-rose-500" />
-          <span>播放队列行为</span>
+          <span>播放偏好与行为</span>
+        </div>
+
+        {/* Default Sound Quality Preference */}
+        <div className="space-y-2 text-xs border-b border-neutral-800/60 pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="font-medium text-neutral-200 block">默认播放音质</span>
+              <span className="text-[11px] text-neutral-500">
+                新曲目播放时优先请求的音频规格（非 VIP 或音源缺失时会自动降级播放）
+              </span>
+            </div>
+            <select
+              value={config.defaultQuality || 'exhigh'}
+              onChange={(e) => {
+                const q = e.target.value as SoundQuality;
+                handleSaveConfig({ ...config, defaultQuality: q });
+                playerActions.setQuality(q);
+              }}
+              className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-xs text-neutral-200 focus:border-rose-500 focus:outline-none"
+            >
+              <option value="standard">标准 (128 kbps MP3)</option>
+              <option value="higher">较高 (192 kbps MP3)</option>
+              <option value="exhigh">极高 (320 kbps MP3 - 推荐)</option>
+              <option value="lossless">无损 (FLAC / 16bit SQ)</option>
+              <option value="hires">Hi-Res (高解析母带 / 24bit)</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center justify-between text-xs">

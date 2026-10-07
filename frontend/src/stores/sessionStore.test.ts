@@ -380,4 +380,94 @@ describe('sessionStore QR Login Lifecycle & Error Handling', () => {
     expect(createdOnly?.length).toBe(1);
     expect(createdOnly?.[0].id).toBe('custom-playlist-888');
   });
+
+  describe('Library Management (Likes & Playlists)', () => {
+    it('toggleLikeTrack prompts login when not logged in', async () => {
+      const res = await sessionActions.toggleLikeTrack('song-1');
+      expect(res).toBe(false);
+      expect(getSessionState().isLoginModalOpen).toBe(true);
+      expect(api.trackLike).not.toHaveBeenCalled();
+    });
+
+    it('toggleLikeTrack performs optimistic update and calls api.trackLike', async () => {
+      // Simulate logged in
+      (getSessionState() as any).session = {
+        profile: { id: 'u101', nickname: 'Alice', avatarUrl: null },
+        persistence: 'secure',
+      };
+      vi.mocked(api.trackLike).mockResolvedValue(true);
+
+      const promise = sessionActions.toggleLikeTrack('song-100');
+      // Optimistically added
+      expect(getSessionState().likedIds.has('song-100')).toBe(true);
+      await promise;
+      expect(api.trackLike).toHaveBeenCalledWith('song-100', true);
+
+      // Toggle off
+      const promise2 = sessionActions.toggleLikeTrack('song-100');
+      expect(getSessionState().likedIds.has('song-100')).toBe(false);
+      await promise2;
+      expect(api.trackLike).toHaveBeenCalledWith('song-100', false);
+    });
+
+    it('toggleLikeTrack rolls back optimistic update when api.trackLike fails', async () => {
+      (getSessionState() as any).session = {
+        profile: { id: 'u101', nickname: 'Alice', avatarUrl: null },
+        persistence: 'secure',
+      };
+      vi.mocked(api.trackLike).mockRejectedValue(new Error('Network error'));
+
+      await expect(sessionActions.toggleLikeTrack('song-err')).rejects.toThrow();
+      expect(getSessionState().likedIds.has('song-err')).toBe(false);
+    });
+
+    it('createPlaylist inserts new playlist into userPlaylists', async () => {
+      (getSessionState() as any).session = {
+        profile: { id: 'u101', nickname: 'Alice', avatarUrl: null },
+        persistence: 'secure',
+      };
+      (getSessionState() as any).userPlaylists = {
+        items: [
+          { id: 'p-liked', title: '我喜欢的音乐', coverUrl: null, trackCount: 5, ownerId: 'u101', subscribed: false, isCreator: true, isLikedPlaylist: true },
+        ],
+        offset: 0,
+        hasMore: false,
+        likedPlaylistId: 'p-liked',
+      };
+
+      vi.mocked(api.playlistCreate).mockResolvedValue({
+        id: 'p-new',
+        title: '我的新歌单',
+        coverUrl: null,
+        trackCount: 0,
+        ownerId: 'u101',
+        subscribed: false,
+        isCreator: true,
+        isLikedPlaylist: false,
+      });
+
+      const res = await sessionActions.createPlaylist('我的新歌单');
+      expect(res.id).toBe('p-new');
+      const items = getSessionState().userPlaylists?.items;
+      expect(items?.length).toBe(2);
+      expect(items?.[1].id).toBe('p-new');
+    });
+
+    it('deletePlaylist removes target playlist from userPlaylists', async () => {
+      (getSessionState() as any).userPlaylists = {
+        items: [
+          { id: 'p-1', title: '歌单1', coverUrl: null, trackCount: 0, ownerId: 'u101', subscribed: false, isCreator: true, isLikedPlaylist: false },
+          { id: 'p-2', title: '歌单2', coverUrl: null, trackCount: 0, ownerId: 'u101', subscribed: false, isCreator: true, isLikedPlaylist: false },
+        ],
+        offset: 0,
+        hasMore: false,
+        likedPlaylistId: null,
+      };
+
+      vi.mocked(api.playlistDelete).mockResolvedValue();
+      await sessionActions.deletePlaylist('p-1');
+      expect(api.playlistDelete).toHaveBeenCalledWith('p-1');
+      expect(getSessionState().userPlaylists?.items.map((p) => p.id)).toEqual(['p-2']);
+    });
+  });
 });

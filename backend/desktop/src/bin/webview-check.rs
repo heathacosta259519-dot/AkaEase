@@ -26,6 +26,8 @@ impl SourceResolver for LocalAudio {
                 track_id: track.id.clone(),
                 url: self.0.clone(),
                 bitrate: 128000,
+                quality: Some(akanetease_backend::model::SoundQuality::Standard),
+                format: Some("wav".into()),
                 expires_in_seconds: None,
                 is_preview: false,
             })

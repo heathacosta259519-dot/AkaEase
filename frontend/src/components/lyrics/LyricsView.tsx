@@ -12,13 +12,17 @@ import {
   Heart,
   Loader2,
   ListMusic,
+  ListPlus,
+  Plus
 } from 'lucide-react';
 import { useViewStore, viewActions } from '../../stores/viewStore';
 import { usePlayerStore, playerActions, getCurrentPositionMs } from '../../stores/playerStore';
-import { useSessionStore } from '../../stores/sessionStore';
+import { useSessionStore, sessionActions } from '../../stores/sessionStore';
 import { ProgressBar } from '../player/ProgressBar';
 import { VolumeControl } from '../player/VolumeControl';
+import { SoundQualitySelector } from '../player/SoundQualitySelector';
 import { BrandLogo } from '../common/BrandLogo';
+import { CreatePlaylistModal } from '../common/CreatePlaylistModal';
 import { getLyrics } from '../../services/api';
 import type { LyricLine, RepeatMode } from '../../types/backend';
 
@@ -27,6 +31,8 @@ export function LyricsView() {
   const snapshot = usePlayerStore((s) => s.snapshot);
   const positionMs = usePlayerStore((s) => s.positionMs);
   const likedIds = useSessionStore((s) => s.likedIds);
+  const userPlaylists = useSessionStore((s) => s.userPlaylists);
+  const createdPlaylists = userPlaylists?.items.filter((p) => p.isCreator && !p.isLikedPlaylist) ?? [];
 
   const currentTrack = snapshot?.current;
   const isPlaying = snapshot?.playback.state === 'playing';
@@ -39,7 +45,60 @@ export function LyricsView() {
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
 
+  // Playlist management drawer state in lyrics view
+  const [isPlaylistDrawerOpen, setIsPlaylistDrawerOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [trackInPlaylists, setTrackInPlaylists] = useState<Set<string>>(new Set());
+  const [togglingPlaylistId, setTogglingPlaylistId] = useState<string | null>(null);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const playlistMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close playlist drawer when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (playlistMenuRef.current && !playlistMenuRef.current.contains(e.target as Node)) {
+        setIsPlaylistDrawerOpen(false);
+      }
+    };
+    if (isPlaylistDrawerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isPlaylistDrawerOpen]);
+
+  // Reset track in playlists membership when track changes
+  useEffect(() => {
+    setTrackInPlaylists(new Set());
+    setIsPlaylistDrawerOpen(false);
+  }, [currentTrack?.id]);
+
+  const handleTogglePlaylist = async (playlistId: string) => {
+    if (!currentTrack) return;
+    const inPlaylist = trackInPlaylists.has(playlistId);
+    setTogglingPlaylistId(playlistId);
+    try {
+      if (inPlaylist) {
+        await sessionActions.removeTracksFromPlaylist(playlistId, [currentTrack.id]);
+        setTrackInPlaylists((prev) => {
+          const next = new Set(prev);
+          next.delete(playlistId);
+          return next;
+        });
+      } else {
+        await sessionActions.addTracksToPlaylist(playlistId, [currentTrack.id]);
+        setTrackInPlaylists((prev) => {
+          const next = new Set(prev);
+          next.add(playlistId);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to toggle playlist membership:', err);
+    } finally {
+      setTogglingPlaylistId(null);
+    }
+  };
 
   // Fetch lyrics when track changes
   useEffect(() => {
@@ -343,8 +402,8 @@ export function LyricsView() {
 
             {/* Expanded Like Button (放到播放模式旁边，整体大一圈) */}
             <button
-              disabled
-              title={isLiked ? '已在红心歌单中' : '喜欢这首歌'}
+              onClick={() => currentTrack && sessionActions.toggleLikeTrack(currentTrack.id)}
+              title={isLiked ? '取消喜欢' : '喜欢这首歌'}
               className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/5 transition-all text-neutral-400 cursor-pointer active:scale-90"
             >
               <Heart
@@ -353,14 +412,112 @@ export function LyricsView() {
                 }`}
               />
             </button>
+
+            {/* Playlist Add / Remove Switch Drawer Trigger */}
+            <div className="relative">
+              <button
+                onClick={() => setIsPlaylistDrawerOpen(!isPlaylistDrawerOpen)}
+                title="歌单管理：将当前歌曲加入或移除自建歌单"
+                className={`flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/5 transition-all cursor-pointer active:scale-90 ${
+                  isPlaylistDrawerOpen ? 'text-rose-400 bg-white/10' : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <ListPlus className="h-5 w-5" />
+              </button>
+
+              {/* Playlist Management Popover */}
+              {isPlaylistDrawerOpen && (
+                <div
+                  ref={playlistMenuRef}
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 w-64 rounded-2xl border border-neutral-700/80 bg-neutral-900/98 p-3 shadow-2xl backdrop-blur-2xl text-xs text-neutral-200 animate-in fade-in zoom-in-95 origin-bottom duration-150"
+                >
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800/80 font-semibold text-neutral-300">
+                    <span className="flex items-center gap-1.5 text-xs">
+                      <ListPlus className="h-4 w-4 text-rose-500" />
+                      <span>加入或移出歌单</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        setIsPlaylistDrawerOpen(false);
+                        setIsCreateModalOpen(true);
+                      }}
+                      title="新建歌单"
+                      className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {createdPlaylists.length === 0 ? (
+                    <div className="py-4 text-center text-neutral-500 text-xs">
+                      <p>暂无自建歌单</p>
+                      <button
+                        onClick={() => {
+                          setIsPlaylistDrawerOpen(false);
+                          setIsCreateModalOpen(true);
+                        }}
+                        className="mt-2 text-rose-400 hover:underline cursor-pointer"
+                      >
+                        立即新建一个
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto space-y-1 py-0.5">
+                      {createdPlaylists.map((pl) => {
+                        const isIncluded = trackInPlaylists.has(pl.id);
+                        const isPending = togglingPlaylistId === pl.id;
+
+                        return (
+                          <div
+                            key={pl.id}
+                            onClick={() => !isPending && handleTogglePlaylist(pl.id)}
+                            className="flex items-center justify-between px-2.5 py-2 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group select-none"
+                          >
+                            <div className="flex flex-col min-w-0 pr-2">
+                              <span className="truncate font-medium text-neutral-200 group-hover:text-white">
+                                {pl.title}
+                              </span>
+                              <span className="text-[11px] text-neutral-500 font-mono">
+                                {pl.trackCount} 首
+                              </span>
+                            </div>
+
+                            {/* Toggle Switch */}
+                            <div
+                              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                                isIncluded ? 'bg-rose-600' : 'bg-neutral-700'
+                              } ${isPending ? 'opacity-50' : ''}`}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                                  isIncluded ? 'translate-x-4.5' : 'translate-x-1'
+                                }`}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Right: Volume */}
-          <div className="flex items-center justify-end w-1/4 min-w-[140px]">
+          {/* Right: Volume & Quality */}
+          <div className="flex items-center justify-end gap-3 w-1/4 min-w-[180px]">
+            <SoundQualitySelector compact />
             <VolumeControl />
           </div>
         </div>
       </div>
+
+      {/* Modal for creating playlist from lyrics view */}
+      <CreatePlaylistModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 pub use crate::personal::{UserPlaylist, UserPlaylists, UserProfile};
 use crate::{
-    api::{NeteaseClient, protocol},
+    api::{NeteaseClient, protocol, validate_id},
     credentials::{CredentialStore, EphemeralStore, SecretServiceStore},
     diagnostics::{AuthOutcome, AuthPhase, Diagnostics},
     error::{BackendError, Result},
@@ -118,6 +118,7 @@ pub struct AccountService {
     state: Arc<Mutex<State>>,
     store: Arc<dyn CredentialStore>,
     store_gate: Arc<Mutex<()>>,
+    library_gate: Mutex<()>,
     credential_changed: Arc<Notify>,
     factory: ClientFactory,
     diagnostics: Option<Arc<Diagnostics>>,
@@ -171,6 +172,7 @@ impl AccountService {
             })),
             store,
             store_gate: Arc::new(Mutex::new(())),
+            library_gate: Mutex::new(()),
             credential_changed: Arc::new(Notify::new()),
             factory,
             diagnostics: None,
@@ -719,9 +721,99 @@ impl AccountService {
         let (generation, client, _) = self.current().await?;
         self.finish(generation, client.daily_tracks().await).await
     }
-    pub async fn stream(&self, id: &str) -> Result<StreamSource> {
+
+    pub async fn track_like(&self, track_id: &str, like: bool) -> Result<bool> {
         let (generation, client, _) = self.current().await?;
-        self.finish(generation, client.stream(id).await).await
+        validate_id(track_id)?;
+        let _write = self.library_gate.lock().await;
+        self.finish(generation, Ok(())).await?;
+        self.finish(generation, client.track_like(track_id, like).await)
+            .await
+    }
+
+    pub async fn playlist_create(&self, name: &str, privacy: Option<u32>) -> Result<UserPlaylist> {
+        let (generation, client, user_id) = self.current().await?;
+        crate::personal::playlist_name(name, privacy)?;
+        let _write = self.library_gate.lock().await;
+        self.finish(generation, Ok(())).await?;
+        self.finish(
+            generation,
+            client.playlist_create(&user_id, name, privacy).await,
+        )
+        .await
+    }
+
+    pub async fn playlist_delete(&self, playlist_id: &str) -> Result<()> {
+        let (generation, client, user_id) = self.current().await?;
+        validate_id(playlist_id)?;
+        let _write = self.library_gate.lock().await;
+        self.finish(generation, Ok(())).await?;
+        self.finish(
+            generation,
+            client
+                .check_playlist_access(playlist_id, &user_id, true)
+                .await,
+        )
+        .await?;
+        self.finish(generation, client.playlist_delete(playlist_id).await)
+            .await
+    }
+
+    pub async fn playlist_tracks_op(
+        &self,
+        playlist_id: &str,
+        track_ids: &[String],
+        op: &str,
+    ) -> Result<usize> {
+        let (generation, client, user_id) = self.current().await?;
+        validate_id(playlist_id)?;
+        let ids = crate::personal::playlist_track_ids(track_ids, op)?;
+        let _write = self.library_gate.lock().await;
+        self.finish(generation, Ok(())).await?;
+        self.finish(
+            generation,
+            client
+                .check_playlist_access(playlist_id, &user_id, true)
+                .await,
+        )
+        .await?;
+        self.finish(
+            generation,
+            client.playlist_tracks_op(playlist_id, &ids, op).await,
+        )
+        .await
+    }
+
+    pub async fn playlist_subscribe(&self, playlist_id: &str, subscribe: bool) -> Result<()> {
+        let (generation, client, user_id) = self.current().await?;
+        validate_id(playlist_id)?;
+        let _write = self.library_gate.lock().await;
+        self.finish(generation, Ok(())).await?;
+        self.finish(
+            generation,
+            client
+                .check_playlist_access(playlist_id, &user_id, false)
+                .await,
+        )
+        .await?;
+        self.finish(
+            generation,
+            client.playlist_subscribe(playlist_id, subscribe).await,
+        )
+        .await
+    }
+    pub async fn stream(&self, id: &str) -> Result<StreamSource> {
+        self.stream_quality(id, crate::model::SoundQuality::default())
+            .await
+    }
+    pub async fn stream_quality(
+        &self,
+        id: &str,
+        quality: crate::model::SoundQuality,
+    ) -> Result<StreamSource> {
+        let (generation, client, _) = self.current().await?;
+        self.finish(generation, client.stream_quality(id, quality).await)
+            .await
     }
     pub async fn playlist(
         &self,
